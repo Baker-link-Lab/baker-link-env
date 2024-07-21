@@ -1,5 +1,3 @@
-use egui::warn_if_debug_build;
-
 use crate::cmd;
 use crate::infoui::setup_ui;
 use crate::logger::DisplayBuffer;

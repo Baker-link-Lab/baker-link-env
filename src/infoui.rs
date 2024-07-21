@@ -1,5 +1,9 @@
 pub fn setup_ui(ui: &mut egui::Ui, clipboard: &mut arboard::Clipboard) {
-    ui.label("Baker link.toolは、Visual Studio CodeのDeveloping inside a Containerを使ったRustの開発環境を構築するツールです。そのためDocker(Rancher Desktop by SUSE)、Visual Studio Code、probe-rsをインストールを前提としています。");
+    ui.label("Baker link. Envは、Visual Studio CodeのDeveloping inside a Containerを使ったRustの開発環境を構築するツールで、");
+    ui.label("・Docker(Rancher Desktop by SUSE)");
+    ui.label("・Visual Studio Code");
+    ui.label("・probe-rs");
+    ui.label("をインストールを前提としています。");
     ui.add_space(2.0);
     ui.heading("Docker");
     let space = 16.0;
