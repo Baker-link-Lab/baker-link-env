@@ -22,8 +22,7 @@ pub fn setup_ui(ui: &mut egui::Ui, clipboard: &mut arboard::Clipboard) {
     ui.add_space(20.0);
 
     ui.heading("probe-rsのインストール");
-    // #[cfg(target_os = "windows")]
-    #[cfg(target_os = "macos")]
+    #[cfg(target_os = "windows")]
     {
         ui.horizontal(|ui| {
             ui.add_space(space);
@@ -65,8 +64,7 @@ pub fn setup_ui(ui: &mut egui::Ui, clipboard: &mut arboard::Clipboard) {
             }
         });
     }
-    // #[cfg(target_os = "macos")]
-    #[cfg(target_os = "windows")]
+    #[cfg(target_os = "macos")]
     {
         ui.horizontal(|ui| {
             ui.add_space(space);
