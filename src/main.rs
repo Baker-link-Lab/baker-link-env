@@ -9,17 +9,13 @@ mod uiutil;
 
 fn main() -> eframe::Result {
     env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
-    #[cfg(target_os = "macos")]
-    let viewport = egui::ViewportBuilder::default().with_icon(
-        eframe::icon_data::from_png_bytes(&include_bytes!("../icon/icon.png")[..])
-            .expect("Failed to load icon"),
-    );
-
-    #[cfg(target_os = "windows")]
-    let viewport = egui::ViewportBuilder::default();
 
     let native_options = eframe::NativeOptions {
-        viewport: viewport
+        viewport: egui::ViewportBuilder::default()
+            .with_icon(
+                eframe::icon_data::from_png_bytes(&include_bytes!("../icon/icon.png")[..])
+                    .expect("Failed to load icon"),
+            )
             .with_inner_size([400.0, 300.0])
             .with_min_inner_size([300.0, 220.0]),
         ..Default::default()
