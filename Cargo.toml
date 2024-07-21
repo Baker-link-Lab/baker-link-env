@@ -2,6 +2,10 @@
 name = "baker-link-env"
 version = "0.1.0"
 edition = "2021"
+build = "build.rs"
+
+[build-dependencies]
+winres = "0.1"
 
 [dependencies]
 egui = "0.28"
@@ -27,7 +31,7 @@ arboard = "3.4.0"
 before-packaging-command = "cargo build --release"
 product-name = "Baker link. Env"
 identifier = "baker.link.env"
-resources = ["Cargo.toml", "src", "icon/32_32_icon.png"]
-icons = ["icon/32_32_icon.png"]
+resources = ["Cargo.toml", "src", "icon/icon.ico"]
+icons = ["icon/icon.ico"]
 out-dir="./dist"
 license-file = "LICENSE"
