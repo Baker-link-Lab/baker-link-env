@@ -96,9 +96,6 @@ pub fn generate_project(name: &str, path: &str) -> anyhow::Result<std::path::Pat
 }
 
 pub fn get_probe_rs_versions() -> Option<String> {
-    #[cfg(target_os = "windows")]
-    let probe_rs_cmd = "probe-rs.cmd";
-    #[cfg(target_os = "macos")]
     let probe_rs_cmd = "probe-rs";
 
     let path = std::env!("PATH");

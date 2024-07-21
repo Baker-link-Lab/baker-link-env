@@ -155,7 +155,6 @@ impl EvnApp {
 
 impl eframe::App for EvnApp {
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        self.probe_rs_dap_server.stop();
         eframe::set_value(storage, eframe::APP_KEY, self);
     }
 
