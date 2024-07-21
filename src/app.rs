@@ -1,3 +1,5 @@
+use egui::warn_if_debug_build;
+
 use crate::cmd;
 use crate::infoui::setup_ui;
 use crate::logger::DisplayBuffer;
@@ -47,7 +49,7 @@ impl EvnApp {
             if ui.add(make_orange_button("create")).clicked() {
                 if let Some(path) = rfd::FileDialog::new().pick_folder() {
                     self.new_project.path = path.to_string_lossy().to_string();
-                    if self.new_project.history_push(format!(
+                    if cmd::is_folder_exists(&format!(
                         "{}/{}",
                         self.new_project.path.clone(),
                         self.new_project.name.clone()
@@ -99,10 +101,14 @@ impl EvnApp {
             &mut self.new_project.vscode_open_enabled,
             "Visual Studio Code open",
         );
+        ui.hyperlink_to(
+            "Template Code",
+            "https://github.com/T-ikko/bakerlink_tutorial_template.git",
+        );
     }
 
     fn probe_rs_dap_server_ui(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Probe-rs DAP Server");
+        ui.heading("probe-rs DAP Server");
 
         let mut run_color = egui::Color32::GRAY;
         let mut stop_color = egui::Color32::GRAY;
@@ -145,9 +151,26 @@ impl eframe::App for EvnApp {
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
-            if ui.button("help").clicked() {
-                self.info = !self.info;
-            };
+            ui.horizontal(|ui| {
+                if ui.button("help").clicked() {
+                    self.info = !self.info;
+                };
+                ui.menu_button("history", |ui| {
+                    for (i, path) in self.new_project.history.clone().iter().enumerate() {
+                        if ui.button(path).clicked() {
+                            if cmd::is_folder_exists(path) {
+                                cmd::open_vscode(path);
+                            } else {
+                                self.display_buffer.log_error(format!(
+                                    "Project not found: {}",
+                                    path
+                                ));
+                                self.new_project.history.remove(i);
+                            }
+                        }
+                    }
+                });
+            });
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -168,11 +191,6 @@ impl eframe::App for EvnApp {
             probers_dapserver_frame.show(ui, |ui| {
                 self.probe_rs_dap_server_ui(ui);
             });
-
-            // ui.add(egui::github_link_file!(
-            //     "https://github.com/emilk/eframe_template/blob/main/",
-            //     "Source code."
-            // ));
 
             egui::TopBottomPanel::bottom("bottom_panel").show_inside(ui, |ui| {
                 ui.heading("Log");

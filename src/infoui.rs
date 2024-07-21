@@ -21,13 +21,13 @@ pub fn setup_ui(ui: &mut egui::Ui, clipboard: &mut arboard::Clipboard) {
     ui.add_space(20.0);
 
     ui.heading("probe-rsのインストール");
+    ui.horizontal(|ui| {
+        ui.add_space(space);
+        ui.hyperlink_to("probe-rs", "https://probe.rs/");
+        ui.label("が公式のリンクになります。以下、probe-rsのインストール方法について抜粋して記載します。");
+    });
     #[cfg(target_os = "windows")]
     {
-        ui.horizontal(|ui| {
-            ui.add_space(space);
-            ui.hyperlink_to("probe-rs", "https://probe.rs/");
-            ui.label("が公式のリンクになります。以下、probe-rsのインストール方法について抜粋して記載します。");
-        });
         ui.add_space(10.0);
         ui.horizontal(|ui| {
             ui.add_space(space);
@@ -43,7 +43,7 @@ pub fn setup_ui(ui: &mut egui::Ui, clipboard: &mut arboard::Clipboard) {
             ui.add_space(space);
             let cmd_text = "Set-ExecutionPolicy RemoteSigned -scope CurrentUser";
             ui.label(egui::RichText::new(cmd_text).size(11.0));
-            if ui.button("copy").clicked(){ 
+            if ui.button("copy").clicked() {
                 clipboard.set_text(cmd_text).unwrap();
             }
         });
@@ -65,12 +65,6 @@ pub fn setup_ui(ui: &mut egui::Ui, clipboard: &mut arboard::Clipboard) {
     }
     #[cfg(target_os = "macos")]
     {
-        ui.horizontal(|ui| {
-            ui.add_space(space);
-            ui.hyperlink_to("probe-rs", "https://probe.rs/");
-            ui.label("をインストールしてください。");
-            ui.label("ターミナルで以下のコマンドを実行してインストールできます。");
-        });
         ui.horizontal(|ui|{
             ui.add_space(space);
             let cmd_text = "curl --proto '=https' --tlsv1.2 -LsSf https://github.com/probe-rs/probe-rs/releases/latest/download/probe-rs-tools-installer.sh | sh";

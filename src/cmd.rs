@@ -9,7 +9,7 @@ pub struct NewProject {
     pub name: String,
     pub path: String,
     pub vscode_open_enabled: bool,
-    history: Vec<String>,
+    pub history: Vec<String>,
     history_max: usize,
 }
 
@@ -87,6 +87,10 @@ pub fn open_vscode(path: &str) -> Result<std::process::Output, std::io::Error> {
             .arg(path)  // ディレクトリを指定
             .output()
     }
+}
+
+pub fn is_folder_exists(path: &str) -> bool {
+    std::path::Path::new(path).exists()
 }
 
 pub fn generate_project(name: &str, path: &str) -> anyhow::Result<std::path::PathBuf> {
