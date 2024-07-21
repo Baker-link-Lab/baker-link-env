@@ -47,14 +47,13 @@ impl EvnApp {
             if ui.add(make_orange_button("create")).clicked() {
                 if let Some(path) = rfd::FileDialog::new().pick_folder() {
                     self.new_project.path = path.to_string_lossy().to_string();
-                    if cmd::is_folder_exists(&format!(
-                        "{}/{}",
-                        self.new_project.path.clone(),
-                        self.new_project.name.clone()
-                    )) {
+                    let join_path =
+                        std::path::Path::new(&self.new_project.path).join(&self.new_project.name);
+                    if join_path.exists() == false {
                         match cmd::generate_project(&self.new_project.name, &self.new_project.path)
                         {
                             Ok(_) => {
+                                self.new_project.history_push(join_path.to_str().unwrap().to_string());
                                 self.display_buffer.log_info(format!(
                                     "Project {}/{} generated",
                                     self.new_project.path, self.new_project.name
@@ -74,20 +73,18 @@ impl EvnApp {
                         ));
                     }
                     if self.new_project.vscode_open_enabled {
-                        match cmd::open_vscode(&format!(
-                            "{}/{}",
-                            &self.new_project.path, &self.new_project.name
-                        )) {
+                        match cmd::open_vscode(join_path.to_str().unwrap()) {
                             Ok(_) => {
                                 self.display_buffer.log_info(format!(
-                                    "Visual Studio Code opened: {}/{}",
-                                    self.new_project.path, self.new_project.name
+                                    "Visual Studio Code opened: {}",
+                                    join_path.to_str().unwrap()
                                 ));
                             }
                             Err(e) => {
                                 self.display_buffer.log_error(format!(
-                                    "Visual Studio Code open failed: {}/{}: {}",
-                                    self.new_project.path, self.new_project.name, e
+                                    "Visual Studio Code open failed: {}: {}",
+                                    join_path.to_str().unwrap(),
+                                    e
                                 ));
                             }
                         };
@@ -157,12 +154,10 @@ impl eframe::App for EvnApp {
                     for (i, path) in self.new_project.history.clone().iter().enumerate() {
                         if ui.button(path).clicked() {
                             if cmd::is_folder_exists(path) {
-                                cmd::open_vscode(path);
+                                let _ = cmd::open_vscode(path);
                             } else {
-                                self.display_buffer.log_error(format!(
-                                    "Project not found: {}",
-                                    path
-                                ));
+                                self.display_buffer
+                                    .log_error(format!("Project not found: {}", path));
                                 self.new_project.history.remove(i);
                             }
                         }
