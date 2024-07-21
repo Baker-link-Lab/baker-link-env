@@ -53,23 +53,24 @@ impl EvnApp {
                         match cmd::generate_project(&self.new_project.name, &self.new_project.path)
                         {
                             Ok(_) => {
-                                self.new_project.history_push(join_path.to_str().unwrap().to_string());
+                                self.new_project.history_push();
                                 self.display_buffer.log_info(format!(
-                                    "Project {}/{} generated",
-                                    self.new_project.path, self.new_project.name
+                                    "Project {} generated",
+                                    join_path.to_str().unwrap(),
                                 ));
                             }
                             Err(e) => {
                                 self.display_buffer.log_error(format!(
-                                    "Project {}/{} generate failed: {}",
-                                    self.new_project.path, self.new_project.name, e
+                                    "Project {} generate failed: {}",
+                                    join_path.to_str().unwrap(),
+                                    e,
                                 ));
                             }
                         }
                     } else {
                         self.display_buffer.log_info(format!(
-                            "Project {}/{} already created",
-                            self.new_project.path, self.new_project.name
+                            "Project {} already created",
+                            join_path.to_str().unwrap(),
                         ));
                     }
                     if self.new_project.vscode_open_enabled {
@@ -84,7 +85,7 @@ impl EvnApp {
                                 self.display_buffer.log_error(format!(
                                     "Visual Studio Code open failed: {}: {}",
                                     join_path.to_str().unwrap(),
-                                    e
+                                    e,
                                 ));
                             }
                         };
@@ -151,13 +152,27 @@ impl eframe::App for EvnApp {
                     self.info = !self.info;
                 };
                 ui.menu_button("history", |ui| {
-                    for (i, path) in self.new_project.history.clone().iter().enumerate() {
-                        if ui.button(path).clicked() {
-                            if cmd::is_folder_exists(path) {
-                                let _ = cmd::open_vscode(path);
+                    for (i, pj) in self.new_project.history.clone().iter().enumerate() {
+                        if ui.button(&pj.get_path()).clicked() {
+                            if pj.is_folder_exists() {
+                                match pj.open_vscode() {
+                                    Ok(_) => {
+                                        self.display_buffer.log_info(format!(
+                                            "Visual Studio Code opened: {}",
+                                            pj.get_path()
+                                        ));
+                                    }
+                                    Err(e) => {
+                                        self.display_buffer.log_error(format!(
+                                            "Visual Studio Code open failed: {}: {}",
+                                            pj.get_path(),
+                                            e
+                                        ));
+                                    }
+                                };
                             } else {
                                 self.display_buffer
-                                    .log_error(format!("Project not found: {}", path));
+                                    .log_error(format!("Project not found: {}", pj.get_path()));
                                 self.new_project.history.remove(i);
                             }
                         }

@@ -1,15 +1,39 @@
-use std::process::{Command, Stdio};
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
+use std::process::{Command, Stdio};
 
 use chrono::format;
+
+#[derive(serde::Deserialize, serde::Serialize, PartialEq, Clone)]
+pub struct Project {
+    pub name: String,
+    path: String,
+}
+
+impl Project {
+    pub fn get_path(&self) -> String {
+        std::path::Path::new(&self.path)
+            .join(&self.name)
+            .to_str()
+            .unwrap()
+            .to_string()
+    }
+
+    pub fn is_folder_exists(&self) -> bool {
+        std::path::Path::new(&self.get_path()).exists()
+    }
+
+    pub fn open_vscode(&self) -> Result<std::process::Output, std::io::Error> {
+        open_vscode(&self.get_path())
+    }
+}
 
 #[derive(serde::Deserialize, serde::Serialize)]
 pub struct NewProject {
     pub name: String,
     pub path: String,
     pub vscode_open_enabled: bool,
-    pub history: Vec<String>,
+    pub history: Vec<Project>,
     history_max: usize,
 }
 
@@ -38,7 +62,7 @@ impl Default for NewProject {
     fn default() -> Self {
         Self {
             name: "myproject".to_string(),
-            path: "myproject/path".to_string(),
+            path: "".to_string(),
             vscode_open_enabled: true,
             history: Vec::with_capacity(10),
             history_max: 10,
@@ -57,15 +81,22 @@ impl Default for ProbeRsDapServer {
 }
 
 impl NewProject {
-    pub fn history_push(&mut self, path: String) -> bool {
-        if self.history.contains(&path) {
+    pub fn history_push(&mut self) -> bool {
+        if self.history.contains(&Project {
+            name: self.name.clone(),
+            path: self.path.clone(),
+        }) {
             return false;
         }
 
         if self.history.len() == self.history_max {
             self.history.remove(0);
         }
-        self.history.push(path);
+
+        self.history.push(Project {
+            name: self.name.clone(),
+            path: self.path.clone(),
+        });
         true
     }
 }
@@ -84,7 +115,7 @@ pub fn open_vscode(path: &str) -> Result<std::process::Output, std::io::Error> {
         std::process::Command::new("open")
             .arg("-a")
             .arg("Visual Studio Code")
-            .arg(path)  // ディレクトリを指定
+            .arg(path) // ディレクトリを指定
             .output()
     }
 }
@@ -181,5 +212,4 @@ impl ProbeRsDapServer {
         self.status = DapServerStatus::Stopped;
         true
     }
-
 }
