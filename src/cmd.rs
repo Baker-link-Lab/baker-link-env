@@ -1,4 +1,6 @@
 use std::process::{Command, Stdio};
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 
 use chrono::format;
 
@@ -127,6 +129,17 @@ impl ProbeRsDapServer {
         cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
         let path = std::env!("PATH");
+        #[cfg(target_os = "windows")]
+        let mut child = cmd
+            .env("PATH", path)
+            .arg("dap-server")
+            .arg("--port")
+            .arg(self.port.to_string())
+            .creation_flags(0x08000000)
+            .spawn()
+            .unwrap();
+
+        #[cfg(target_os = "macos")]
         let mut child = cmd
             .env("PATH", path)
             .arg("dap-server")
