@@ -213,3 +213,14 @@ impl ProbeRsDapServer {
         true
     }
 }
+
+pub fn are_apps_runnning(app_name: &str) -> bool {
+    let mut system = sysinfo::System::new_all();
+    system.refresh_processes();
+    let count = system
+        .processes()
+        .values()
+        .filter(|p| p.name() == app_name)
+        .count();
+    return count >= 2;
+}
