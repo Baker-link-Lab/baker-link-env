@@ -20,6 +20,8 @@ rfd = "0.14.1"
 cargo-generate = "0.21.3"
 anyhow = "1.0.86"
 chrono = "0.4.38"
+arboard = "3.4.0"
+
 
 [package.metadata.packager]
 before-packaging-command = "cargo build --release"

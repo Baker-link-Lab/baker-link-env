@@ -1,8 +1,9 @@
 use crate::cmd;
+use crate::infoui::setup_ui;
 use crate::logger::DisplayBuffer;
 use crate::parameter;
-use crate::util;
-use crate::util::make_orange_button;
+use crate::uiutil;
+use crate::uiutil::make_orange_button;
 
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)] // if we add new fields, give them default values when deserializing old state
@@ -11,18 +12,19 @@ pub struct EvnApp {
     probe_rs_dap_server: cmd::ProbeRsDapServer,
     #[serde(skip)]
     display_buffer: DisplayBuffer,
+    info: bool,
     #[serde(skip)]
-    value: f32,
+    clipboard: arboard::Clipboard,
 }
 
 impl Default for EvnApp {
     fn default() -> Self {
         Self {
-            // Example stuff:
             new_project: Default::default(),
             probe_rs_dap_server: Default::default(),
-            value: 2.7,
             display_buffer: DisplayBuffer::new(),
+            info: true,
+            clipboard: arboard::Clipboard::new().unwrap(),
         }
     }
 }
@@ -46,7 +48,11 @@ impl EvnApp {
                 if let Some(path) = rfd::FileDialog::new().pick_folder() {
                     self.new_project.path = path.to_string_lossy().to_string();
                     println!("path: {}/{}", self.new_project.path, self.new_project.name);
-                    if self.new_project.history_push( format!("{}/{}", self.new_project.path.clone(), self.new_project.name.clone())) {
+                    if self.new_project.history_push(format!(
+                        "{}/{}",
+                        self.new_project.path.clone(),
+                        self.new_project.name.clone()
+                    )) {
                         match cmd::generate_project(&self.new_project.name, &self.new_project.path)
                         {
                             Ok(_) => {
@@ -112,26 +118,52 @@ impl EvnApp {
 
     fn probe_rs_dap_server_ui(&mut self, ui: &mut egui::Ui) {
         ui.heading("Probe-rs DAP Server");
+
+        let mut run_color = egui::Color32::GRAY;
+        let mut stop_color = egui::Color32::GRAY;
+        if self.probe_rs_dap_server.status == cmd::DapServerStatus::Stopped {
+            run_color = egui::Color32::GREEN;
+        } else {
+            stop_color = egui::Color32::RED;
+        }
+
         ui.horizontal(|ui| {
             ui.label("Port:");
             ui.add(
                 egui::TextEdit::singleline(&mut self.probe_rs_dap_server.port).desired_width(50.0),
             );
             ui.add_space(1.0);
-            ui.button("Run");
-            ui.button("Stop");
+            if ui.add(egui::Button::new("Run").fill(run_color)).clicked() {
+                let probe_rs_versoin = cmd::get_probe_rs_versions();
+                if probe_rs_versoin.is_none() {
+                    self.display_buffer
+                        .log_error("probe-rs not found".to_string());
+                } else {
+                    self.probe_rs_dap_server
+                        .start(self.display_buffer.tx.clone());
+                }
+            };
+            if ui.add(egui::Button::new("Stop").fill(stop_color)).clicked() {
+                if self.probe_rs_dap_server.stop() {
+                    self.display_buffer
+                        .log_info("probe-rs dap-server stopped".to_string());
+                };
+            }
         });
     }
 }
 
 impl eframe::App for EvnApp {
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        self.probe_rs_dap_server.stop();
         eframe::set_value(storage, eframe::APP_KEY, self);
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
-            ui.button("help");
+            if ui.button("help").clicked(){
+                self.info = !self.info;
+            };
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -143,12 +175,12 @@ impl eframe::App for EvnApp {
                 );
             });
 
-            let frame_pj_create = util::get_frame(ui);
+            let frame_pj_create = uiutil::get_frame(ui);
             frame_pj_create.show(ui, |ui| {
                 self.project_create_ui(ui);
             });
 
-            let probers_dapserver_frame = util::get_frame(ui);
+            let probers_dapserver_frame = uiutil::get_frame(ui);
             probers_dapserver_frame.show(ui, |ui| {
                 self.probe_rs_dap_server_ui(ui);
             });
@@ -180,10 +212,18 @@ impl eframe::App for EvnApp {
                 );
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
                     powered_by_egui_and_eframe(ui);
-                    egui::warn_if_debug_build(ui);
                 });
             });
         });
+
+        if self.info {
+            egui::Window::new("Info")
+                .open(&mut self.info)
+                .default_width(400.0)
+                .show(ctx, |ui| {
+                    setup_ui(ui, &mut self.clipboard);
+                });
+        }
     }
 }
 

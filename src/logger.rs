@@ -1,7 +1,7 @@
 pub struct DisplayBuffer {
     pub buffer: Vec<String>,
     log_level: log::Level,
-    tx: std::sync::mpsc::Sender<String>,
+    pub tx: std::sync::mpsc::Sender<String>,
     rx: std::sync::mpsc::Receiver<String>,
 }
 

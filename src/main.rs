@@ -2,8 +2,9 @@
 mod app;
 mod cmd;
 mod parameter;
-mod util;
+mod uiutil;
 mod logger;
+mod infoui;
 
 fn main() -> eframe::Result {
     env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
@@ -22,8 +23,8 @@ fn main() -> eframe::Result {
         parameter::APP_NAME,
         native_options,
         Box::new(|cc| {
-            util::set_fonts(cc);
-            util::set_background_color(cc, egui::Color32::from_hex("#fff9ee").unwrap());
+            uiutil::set_fonts(cc);
+            uiutil::set_background_color(cc, egui::Color32::from_hex("#fff9ee").unwrap());
             Ok(Box::new(app::EvnApp::new(cc)))
         }),
     )
