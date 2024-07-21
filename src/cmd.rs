@@ -72,15 +72,21 @@ impl NewProject {
 
 pub fn open_vscode(path: &str) -> Result<std::process::Output, std::io::Error> {
     #[cfg(target_os = "windows")]
-    let vscode_cmd = "code.cmd";
+    {
+        let env_path = std::env::var(&"PATH").unwrap();
+        std::process::Command::new("code.cmd")
+            .arg(path)
+            .env("PATH", env_path)
+            .output()
+    }
     #[cfg(target_os = "macos")]
-    let vscode_cmd = "code";
-
-    let env_path = std::env::var(&"PATH").unwrap();
-    std::process::Command::new(vscode_cmd)
-        .arg(path)
-        .env("PATH", env_path)
-        .output()
+    {
+        std::process::Command::new("open")
+            .arg("-a")
+            .arg("Visual Studio Code")
+            .arg(path)  // ディレクトリを指定
+            .output()
+    }
 }
 
 pub fn generate_project(name: &str, path: &str) -> anyhow::Result<std::path::PathBuf> {
