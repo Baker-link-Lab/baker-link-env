@@ -2,8 +2,6 @@
 use std::os::windows::process::CommandExt;
 use std::process::{Command, Stdio};
 
-use chrono::format;
-
 #[derive(serde::Deserialize, serde::Serialize, PartialEq, Clone)]
 pub struct Project {
     pub name: String,
@@ -21,10 +19,6 @@ impl Project {
 
     pub fn is_folder_exists(&self) -> bool {
         std::path::Path::new(&self.get_path()).exists()
-    }
-
-    pub fn open_vscode(&self) -> Result<std::process::Output, std::io::Error> {
-        open_vscode(&self.get_path())
     }
 }
 
@@ -120,8 +114,24 @@ pub fn open_vscode(path: &str) -> Result<std::process::Output, std::io::Error> {
     }
 }
 
-pub fn is_folder_exists(path: &str) -> bool {
-    std::path::Path::new(path).exists()
+pub fn start_rd() -> Result<std::process::Output, std::io::Error> {
+    let path = std::env!("PATH");
+
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("rdctl.cmd")
+            .env("PATH", path)
+            .arg("start")
+            .creation_flags(0x08000000)
+            .output()
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("rdctl")
+            .env("PATH", path)
+            .arg("start")
+            .output()
+    }
 }
 
 pub fn generate_project(name: &str, path: &str) -> anyhow::Result<std::path::PathBuf> {
@@ -223,4 +233,28 @@ pub fn are_apps_runnning(app_name: &str) -> bool {
         .filter(|p| p.name() == app_name)
         .count();
     return count >= 2;
+}
+
+pub fn is_app_installed(app_name: &str) -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        let output = Command::new("powershell")
+            .arg("-Command")
+            .arg(format!(
+                "Get-Command {} -ErrorAction SilentlyContinue",
+                app_name
+            ))
+            .output()
+            .expect("failed to execute process");
+        output.status.success()
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let output = Command::new("sh")
+            .arg("-c")
+            .arg(format!("command -v {}", app_name))
+            .output()
+            .expect("failed to execute process");
+        output.status.success()
+    }
 }

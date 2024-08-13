@@ -26,6 +26,7 @@ anyhow = "1.0.86"
 chrono = "0.4.38"
 arboard = "3.4.0"
 sysinfo = "0.30.13"
+open = "5.3.0"
 
 
 [package.metadata.packager]

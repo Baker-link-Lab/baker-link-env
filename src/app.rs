@@ -1,12 +1,11 @@
 use crate::cmd;
-use crate::infoui::setup_ui;
 use crate::logger::DisplayBuffer;
 use crate::parameter;
 use crate::uiutil;
 use crate::uiutil::make_orange_button;
 
 #[derive(serde::Deserialize, serde::Serialize)]
-#[serde(default)] // if we add new fields, give them default values when deserializing old state
+#[serde(default)]
 pub struct EvnApp {
     new_project: cmd::NewProject,
     probe_rs_dap_server: cmd::ProbeRsDapServer,
@@ -19,10 +18,12 @@ pub struct EvnApp {
 
 impl Default for EvnApp {
     fn default() -> Self {
+        let mut display_buffer = DisplayBuffer::new();
+        display_buffer.log_info("Rancher Desktop started".to_string());
         Self {
             new_project: Default::default(),
             probe_rs_dap_server: Default::default(),
-            display_buffer: DisplayBuffer::new(),
+            display_buffer: display_buffer,
             info: true,
             clipboard: arboard::Clipboard::new().unwrap(),
         }
@@ -74,6 +75,7 @@ impl EvnApp {
                         ));
                     }
                     if self.new_project.vscode_open_enabled {
+                        let _ = cmd::start_rd();
                         match cmd::open_vscode(join_path.to_str().unwrap()) {
                             Ok(_) => {
                                 self.display_buffer.log_info(format!(
@@ -99,7 +101,7 @@ impl EvnApp {
         );
         ui.hyperlink_to(
             "Template Code",
-            "https://github.com/T-ikko/bakerlink_tutorial_template.git",
+            "https://github.com/Baker-Tanaka/bakerlink_tutorial_template.git",
         );
     }
 
@@ -149,13 +151,14 @@ impl eframe::App for EvnApp {
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 if ui.button("help").clicked() {
-                    self.info = !self.info;
+                    let _ = open::that("https://github.com/Baker-Tanaka/bakerlink_tutorial_template.git");
                 };
                 ui.menu_button("history", |ui| {
                     for (i, pj) in self.new_project.history.clone().iter().enumerate() {
                         if ui.button(&pj.get_path()).clicked() {
                             if pj.is_folder_exists() {
-                                match pj.open_vscode() {
+                                let _ = cmd::start_rd();
+                                match cmd::open_vscode(&pj.get_path()) {
                                     Ok(_) => {
                                         self.display_buffer.log_info(format!(
                                             "Visual Studio Code opened: {}",
@@ -190,12 +193,12 @@ impl eframe::App for EvnApp {
                 );
             });
 
-            let frame_pj_create = uiutil::get_frame(ui);
+            let frame_pj_create = uiutil::get_frame();
             frame_pj_create.show(ui, |ui| {
                 self.project_create_ui(ui);
             });
 
-            let probers_dapserver_frame = uiutil::get_frame(ui);
+            let probers_dapserver_frame = uiutil::get_frame();
             probers_dapserver_frame.show(ui, |ui| {
                 self.probe_rs_dap_server_ui(ui);
             });
@@ -227,12 +230,8 @@ impl eframe::App for EvnApp {
         });
 
         if self.info {
-            egui::Window::new("Info")
-                .open(&mut self.info)
-                .default_width(400.0)
-                .show(ctx, |ui| {
-                    setup_ui(ui, &mut self.clipboard);
-                });
+           let _ = open::that("https://github.com/Baker-Tanaka/baker-link-env/blob/main/README.md");
+           self.info = false;
         }
     }
 }

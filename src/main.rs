@@ -2,13 +2,13 @@
 
 mod app;
 mod cmd;
-mod infoui;
 mod logger;
 mod parameter;
 mod uiutil;
 
 fn main() -> eframe::Result {
     env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
+    let _ = cmd::start_rd();
 
     if cmd::are_apps_runnning("baker-link-env") {
         println!("baker-link-env is already running.");

@@ -27,7 +27,7 @@ pub fn set_fonts(ctx: &eframe::CreationContext) {
     ctx.egui_ctx.set_fonts(fonts);
 }
 
-pub fn get_frame(ui: &mut egui::Ui) -> egui::Frame {
+pub fn get_frame() -> egui::Frame {
     egui::Frame {
         inner_margin: 12.0.into(),
         outer_margin: 5.0.into(),
