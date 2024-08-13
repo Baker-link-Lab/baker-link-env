@@ -151,7 +151,7 @@ impl eframe::App for EvnApp {
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 if ui.button("help").clicked() {
-                    let _ = open::that("https://github.com/Baker-Tanaka/bakerlink_tutorial_template.git");
+                    let _ = open::that("https://github.com/Baker-Tanaka/baker-link-env/blob/main/README.md");
                 };
                 ui.menu_button("history", |ui| {
                     for (i, pj) in self.new_project.history.clone().iter().enumerate() {

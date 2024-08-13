@@ -114,23 +114,25 @@ pub fn open_vscode(path: &str) -> Result<std::process::Output, std::io::Error> {
     }
 }
 
-pub fn start_rd() -> Result<std::process::Output, std::io::Error> {
+pub fn start_rd() {
     let path = std::env!("PATH");
 
     #[cfg(target_os = "windows")]
     {
-        std::process::Command::new("rdctl.cmd")
-            .env("PATH", path)
+        std::process::Command::new("rdctl")
             .arg("start")
+            .env("PATH", path)
             .creation_flags(0x08000000)
-            .output()
+            .spawn()
+            .unwrap();
     }
     #[cfg(target_os = "macos")]
     {
-        std::process::Command::new("rdctl")
+        let _ = std::process::Command::new("rdctl")
             .env("PATH", path)
             .arg("start")
             .output()
+            .unwrap();
     }
 }
 
