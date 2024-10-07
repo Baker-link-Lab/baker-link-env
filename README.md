@@ -1,8 +1,8 @@
 # Baker link. Env (Baker link. Dev tool)
 
-<a href="https://www.buymeacoffee.com/Bakerlink.Lab"><img src="https://img.buymeacoffee.com/button-api/?text=Buy me a coffee&emoji=🍵&slug=Bakerlink.Lab&button_colour=FFDD00&font_colour=000000&font_family=Lato&outline_colour=000000&coffee_colour=ffffff" /></a>
-
 [<img alt="github" src="https://img.shields.io/badge/github-emilk/egui-8da0cb?logo=github" height="20">](https://github.com/emilk/egui)
+
+<a href="https://www.buymeacoffee.com/Bakerlink.Lab" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
 
 <div align="center">
 
