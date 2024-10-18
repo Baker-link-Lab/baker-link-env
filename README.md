@@ -36,6 +36,6 @@ There is an installer on the [Release](https://github.com/T-ikko/baker-link-env/
 
 ## License
 
-Copyright (c) 2024 T-ikko
+Copyright (c) 2024 Baker-Tanaka
 
 Licensed under the [MIT](LICENSE) license.
