@@ -2,6 +2,8 @@
 use std::os::windows::process::CommandExt;
 use std::process::{Command, Stdio};
 
+use crate::parameter;
+
 #[derive(serde::Deserialize, serde::Serialize, PartialEq, Clone)]
 pub struct Project {
     pub name: String,
@@ -142,7 +144,7 @@ pub fn generate_project(name: &str, path: &str) -> anyhow::Result<std::path::Pat
         name: Some(name.to_string()),
         vcs: Some(cargo_generate::Vcs::Git),
         template_path: cargo_generate::TemplatePath {
-            git: Some("https://github.com/T-ikko/bakerlink_tutorial_template.git".to_string()),
+            git: Some(parameter::TUTORIAL_TEMPLATE.to_string()),
             ..cargo_generate::TemplatePath::default()
         },
         ..cargo_generate::GenerateArgs::default()
