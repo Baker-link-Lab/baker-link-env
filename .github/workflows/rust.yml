@@ -1,26 +1,80 @@
-name: Rust
+name: Rust CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches:
+      - main
   pull_request:
-    branches: [ "main" ]
+    branches:
+      - main
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   build:
-    strategy:
-      fail-fast: true
-      matrix:
-        os: [macos-latest, windows-latest]
-
     runs-on: ${{ matrix.os }}
 
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: baker-link-env_0.1.4_x64-setup.exe
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact: Baker\ link.\ Env_0.1.4_aarch64.dmg
+
     steps:
-    - uses: actions/checkout@v4
-    - name: Install cargo-packager
-      run: cargo install cargo-packager --locked
+    - uses: actions/checkout@v2
+    - name: Install Rust
+      run: rustup toolchain install stable
     - name: Build
-      run: cargo packager --release
+      run: cargo build --release --target ${{ matrix.target }}
+    - name: Upload Artifacts
+      if: success()
+      uses: actions/upload-artifact@v2
+      with:
+        name: ${{ matrix.os }}-artifact
+        path: baker-link-env/baker-link-env/dist/${{ matrix.artifact }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Download Windows Artifacts
+      uses: actions/download-artifact@v2
+      with:
+        name: windows-latest-artifact
+        path: ./dist
+    - name: Download MacOS Artifacts
+      uses: actions/download-artifact@v2
+      with:
+        name: macos-latest-artifact
+        path: ./dist
+    - name: Create Release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: v0.1.4
+        release_name: Release v0.1.4
+        body: |
+          リリースノートの内容をここに記載します。
+        draft: false
+        prerelease: false
+    - name: Upload Windows Release Asset
+      uses: actions/upload-release-asset@v1
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./dist/baker-link-env_0.1.4_x64-setup.exe
+        asset_name: baker-link-env_0.1.4_x64-setup.exe
+        asset_content_type: application/octet-stream
+    - name: Upload MacOS Release Asset
+      uses: actions/upload-release-asset@v1
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./dist/Baker\ link.\ Env_0.1.4_aarch64.dmg
+        asset_name: Baker link. Env_0.1.4_aarch64.dmg
+        asset_content_type: application/octet-stream
