@@ -17,12 +17,11 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        os: [macos-latest, windows-latest]
         job:
           - {os: "windows-latest", path: "dist/baker-link-env_0.1.4_x64-setup.exe"}
           - {os: "macos-latest", path: "dist/Baker link. Env_0.1.4_aarch64.dmg"}
 
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.job.os }}
 
     steps:
     - uses: actions/checkout@v4
