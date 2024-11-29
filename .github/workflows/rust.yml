@@ -34,5 +34,5 @@ jobs:
       with:
         files: |
          ${{ matrix.job.path }}
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # env:
+        # GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
