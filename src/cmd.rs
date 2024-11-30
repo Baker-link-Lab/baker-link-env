@@ -135,16 +135,17 @@ pub fn start_rd() -> std::result::Result<(), String> {
     }
     #[cfg(target_os = "macos")]
     {
-        let home_dir = std::env!("HOME");
-        let path_buf = std::path::Path::new(home_dir).join(".rd/bin/");
-        let path = path_buf.to_str().unwrap();
-        match std::process::Command::new("rdctl")
-            .env("PATH", path)
-            .arg("start")
-            .output()
+        let home_dir = std::env::var("HOME").unwrap();
+        let zshrc_path = format!("{}/.zshrc", home_dir);
+
+        // .zshrcをsourceしてrdctlを実行
+        match std::process::Command::new("zsh")
+            .arg("-c")
+            .arg(format!("source {} && rdctl start", zshrc_path))
+            .spawn()
         {
             Ok(_) => Ok(()),
-            Err(e) => Err(format!("Error: {}, $PATH: {}", e, path)),
+            Err(e) => Err(format!("Error: {}", e)),
         }
     }
 }
