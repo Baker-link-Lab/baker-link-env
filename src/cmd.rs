@@ -165,25 +165,52 @@ pub fn generate_project(name: &str, path: &str) -> anyhow::Result<std::path::Pat
 }
 
 pub fn get_probe_rs_versions() -> Option<String> {
-    let probe_rs_cmd = "probe-rs";
-
-    let path = std::env!("PATH");
-    match std::process::Command::new(probe_rs_cmd)
-        .env("PATH", path)
-        .arg("--version")
-        .output()
+    #[cfg(target_os = "windows")]
     {
-        Ok(output) => {
-            if let Some(probe_rs_version) = String::from_utf8_lossy(&output.stdout)
-                .to_string()
-                .lines()
-                .next()
-            {
-                return Some(probe_rs_version.to_owned());
-            };
-            return None;
+        let probe_rs_cmd = "probe-rs";
+        let path = std::env!("PATH");
+        match std::process::Command::new(probe_rs_cmd)
+            .env("PATH", path)
+            .arg("--version")
+            .output()
+        {
+            Ok(output) => {
+                if let Some(probe_rs_version) = String::from_utf8_lossy(&output.stdout)
+                    .to_string()
+                    .lines()
+                    .next()
+                {
+                    return Some(probe_rs_version.to_owned());
+                };
+                return None;
+            }
+            Err(_) => return None,
         }
-        Err(_) => return None,
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let home_dir = std::env::var("HOME").unwrap();
+        let zshrc_path = format!("{}/.zshrc", home_dir);
+
+        // .zshrcをsourceしてrdctlを実行
+        match std::process::Command::new("zsh")
+            .arg("-c")
+            .arg(format!("source {} && probe-rs --version", zshrc_path))
+            .output()
+        {
+            Ok(output) => {
+                if let Some(probe_rs_version) = String::from_utf8_lossy(&output.stdout)
+                    .to_string()
+                    .lines()
+                    .next()
+                {
+                    return Some(probe_rs_version.to_owned());
+                };
+                return None;
+            }
+            Err(_) => None,
+        }
     }
 }
 
@@ -192,41 +219,64 @@ impl ProbeRsDapServer {
         if self.status != DapServerStatus::Stopped {
             return;
         }
-        let mut cmd = Command::new("probe-rs");
-        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
-
         let path = std::env!("PATH");
         #[cfg(target_os = "windows")]
-        let mut child = cmd
-            .env("PATH", path)
-            .arg("dap-server")
-            .arg("--port")
-            .arg(self.port.to_string())
-            .creation_flags(0x08000000)
-            .spawn()
-            .unwrap();
+        {
+            let mut cmd: Command = Command::new("probe-rs");
+            cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+            let mut child = cmd
+                .env("PATH", path)
+                .arg("dap-server")
+                .arg("--port")
+                .arg(self.port.to_string())
+                .creation_flags(0x08000000)
+                .spawn()
+                .unwrap();
+
+            let output = child.stderr.take().unwrap();
+            self.child = Some(child);
+
+            std::thread::spawn(move || {
+                let reader = std::io::BufReader::new(output);
+                for line in std::io::BufRead::lines(reader) {
+                    let now = chrono::Local::now();
+                    now.format("%Y-%m-%d %H:%M:%S%.3f").to_string();
+                    let msg = format!("{}: {}", now, line.unwrap());
+                    tx.send(msg).unwrap();
+                }
+            });
+        }
 
         #[cfg(target_os = "macos")]
-        let mut child = cmd
-            .env("PATH", path)
-            .arg("dap-server")
-            .arg("--port")
-            .arg(self.port.to_string())
-            .spawn()
-            .unwrap();
+        {
+            let home_dir = std::env::var("HOME").unwrap();
+            let zshrc_path = format!("{}/.zshrc", home_dir);
 
-        let output = child.stderr.take().unwrap();
-        self.child = Some(child);
+            let mut cmd: Command = Command::new("zsh");
+            cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+            let mut child = cmd
+                .arg("-c")
+                .arg(format!(
+                    "source {} && probe-rs dap-server --port {}",
+                    zshrc_path, self.port
+                ))
+                .env("RUST_LOG", "debug")
+                .spawn()
+                .unwrap();
 
-        std::thread::spawn(move || {
-            let reader = std::io::BufReader::new(output);
-            for line in std::io::BufRead::lines(reader) {
-                let now = chrono::Local::now();
-                now.format("%Y-%m-%d %H:%M:%S%.3f").to_string();
-                let msg = format!("{}: {}", now, line.unwrap());
-                tx.send(msg).unwrap();
-            }
-        });
+            let output = child.stderr.take().unwrap();
+            self.child = Some(child);
+
+            std::thread::spawn(move || {
+                let reader = std::io::BufReader::new(output);
+                for line in std::io::BufRead::lines(reader) {
+                    let now = chrono::Local::now();
+                    now.format("%Y-%m-%d %H:%M:%S%.3f").to_string();
+                    let msg = format!("{}: {}", now, line.unwrap());
+                    tx.send(msg).unwrap();
+                }
+            });
+        }
         self.status = DapServerStatus::Running(self.port.parse().unwrap());
     }
 
