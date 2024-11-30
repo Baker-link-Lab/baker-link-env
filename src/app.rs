@@ -4,6 +4,9 @@ use crate::parameter;
 use crate::uiutil;
 use crate::uiutil::make_orange_button;
 
+const HELP_URL: &str = "https://github.com/Baker-link-Lab/baker-link-env/blob/main/README.md";
+const TEMPLATE_URL: &str = "https://github.com/Baker-link-Lab/bakerlink_tutorial_template";
+
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)]
 pub struct EvnApp {
@@ -101,7 +104,7 @@ impl EvnApp {
         );
         ui.hyperlink_to(
             "Template Code",
-            "https://github.com/Baker-Tanaka/bakerlink_tutorial_template.git",
+            TEMPLATE_URL,
         );
     }
 
@@ -151,7 +154,7 @@ impl eframe::App for EvnApp {
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 if ui.button("help").clicked() {
-                    let _ = open::that("https://github.com/Baker-Tanaka/baker-link-env/blob/main/README.md");
+                    let _ = open::that(HELP_URL);
                 };
                 ui.menu_button("history", |ui| {
                     for (i, pj) in self.new_project.history.clone().iter().enumerate() {
@@ -230,7 +233,7 @@ impl eframe::App for EvnApp {
         });
 
         if self.info {
-           let _ = open::that("https://github.com/Baker-Tanaka/baker-link-env/blob/main/README.md");
+           let _ = open::that(HELP_URL);
            self.info = false;
         }
     }
