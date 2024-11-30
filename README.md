@@ -32,7 +32,15 @@ To use Baker link.Dev, the following tools must be installed.
 ## Install
 
 Compatible with both Windows and Mac.
-There is an installer on the [Release](https://github.com/T-ikko/baker-link-env/releases) page.
+There is an installer on the [Release](https://github.com/Baker-link-Lab/baker-link-env/releases) page.
+
+### How to Address "Damaged" Error When Launching the App on Mac
+
+After installing Baker link. Env, please run the following command in the terminal:
+
+```sh
+xattr -d com.apple.quarantine "/Applications/Baker link. Env.app"
+```
 
 ## License
 
