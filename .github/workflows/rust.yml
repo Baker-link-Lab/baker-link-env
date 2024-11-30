@@ -25,7 +25,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: Install cargo-packager
-      run: cargo install cargo-packager --version 0.10.0 --locked
+      run: cargo install cargo-packager --locked
     - name: Build
       run: cargo packager --release
     - name: Release
