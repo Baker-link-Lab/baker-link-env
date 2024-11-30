@@ -17,8 +17,8 @@ jobs:
       fail-fast: true
       matrix:
         job:
-          - {os: "windows-latest", path: "dist/baker-link-env_0.1.4_x64-setup.exe"}
-          - {os: "macos-latest", path: "dist/Baker link. Env_0.1.4_aarch64.dmg"}
+            - {os: "windows-latest", path: "dist/*.exe"}
+            - {os: "macos-latest", path: "dist/*.dmg"}
 
     runs-on: ${{ matrix.job.os }}
 
