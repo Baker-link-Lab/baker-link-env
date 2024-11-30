@@ -1,6 +1,9 @@
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
-use std::process::{Command, Stdio};
+use std::{
+    fmt::format,
+    process::{Command, Stdio},
+};
 
 use crate::parameter;
 
@@ -117,10 +120,9 @@ pub fn open_vscode(path: &str) -> Result<std::process::Output, std::io::Error> {
 }
 
 pub fn start_rd() -> std::result::Result<(), String> {
-    let path = std::env!("PATH");
-
     #[cfg(target_os = "windows")]
     {
+        let path = std::env!("PATH");
         match std::process::Command::new("rdctl")
             .arg("start")
             .env("PATH", path)
@@ -133,6 +135,9 @@ pub fn start_rd() -> std::result::Result<(), String> {
     }
     #[cfg(target_os = "macos")]
     {
+        let home_dir = std::env!("HOME");
+        let path_buf = std::path::Path::new(home_dir).join(".rd/bin/");
+        let path = path_buf.to_str().unwrap();
         match std::process::Command::new("rdctl")
             .env("PATH", path)
             .arg("start")
