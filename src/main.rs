@@ -8,12 +8,6 @@ mod uiutil;
 
 fn main() -> eframe::Result {
     env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
-    let _ = cmd::start_rd();
-
-    if cmd::are_apps_runnning("baker-link-env") {
-        println!("baker-link-env is already running.");
-        return Ok(());
-    };
 
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()

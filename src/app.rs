@@ -7,6 +7,8 @@ use crate::uiutil::make_orange_button;
 const HELP_URL: &str = "https://github.com/Baker-link-Lab/baker-link-env/blob/main/README.md";
 const TEMPLATE_URL: &str = "https://github.com/Baker-link-Lab/bakerlink_tutorial_template";
 
+static INIT: std::sync::Once = std::sync::Once::new();
+
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)]
 pub struct EvnApp {
@@ -22,7 +24,7 @@ pub struct EvnApp {
 impl Default for EvnApp {
     fn default() -> Self {
         let mut display_buffer = DisplayBuffer::new();
-        display_buffer.log_info("Rancher Desktop started".to_string());
+
         Self {
             new_project: Default::default(),
             probe_rs_dap_server: Default::default(),
@@ -143,6 +145,28 @@ impl EvnApp {
             }
         });
     }
+
+    fn initialize(&mut self) {
+        INIT.call_once(|| {
+            let _ = cmd::start_rd();
+            if cmd::are_apps_runnning("baker-link-env") {
+                self.display_buffer
+                    .log_error("baker-link-env is already running".to_string());
+            }
+
+            match cmd::start_rd() {
+                Ok(_) => {
+                    self.display_buffer.log_info("Rancher Desktop started".to_string());
+                }
+                Err(e) => {
+                    self.display_buffer.log_error(format!(
+                        "Rancher Desktop start failed: {}",
+                        e
+                    ));
+                }
+            }
+        });
+    }
 }
 
 impl eframe::App for EvnApp {
@@ -151,6 +175,8 @@ impl eframe::App for EvnApp {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.initialize();
+        
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 if ui.button("help").clicked() {
