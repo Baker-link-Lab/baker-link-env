@@ -19,12 +19,10 @@ log = "0.4"
 
 serde = { version = "1", features = ["derive"] }
 env_logger = "0.11.3"
-colorsys = "0.6.7"
 rfd = "0.14.1"
 cargo-generate = "0.21.3"
 anyhow = "1.0.86"
 chrono = "0.4.38"
-arboard = "3.4.0"
 sysinfo = "0.30.13"
 open = "5.3.0"
 
