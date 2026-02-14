@@ -5,6 +5,8 @@ pub struct DisplayBuffer {
     rx: std::sync::mpsc::Receiver<String>,
 }
 
+const TIMESTAMP_FORMAT: &str = "%Y-%m-%d %H:%M:%S%.3f";
+
 impl DisplayBuffer {
     pub fn new() -> Self {
         let (tx, rx) = std::sync::mpsc::channel();
@@ -24,24 +26,22 @@ impl DisplayBuffer {
 
     fn get_timestamp() -> String {
         let now = chrono::Local::now();
-        now.format("%Y-%m-%d %H:%M:%S%.3f").to_string()
+        now.format(TIMESTAMP_FORMAT).to_string()
     }
 
     pub fn log_info(&mut self, msg: String) {
         if self.log_level >= log::Level::Info {
-            let _ = self.tx.send(format!("{}[INFO]: {}", Self::get_timestamp(), msg));
-        }
-    }
-
-    pub fn log_debug(&mut self, msg: String) {
-        if self.log_level >= log::Level::Debug {
-            let _ = self.tx.send(format!("{}[DEBUG]: {}", Self::get_timestamp(), msg));
+            let _ = self
+                .tx
+                .send(format!("{}[INFO]: {}", Self::get_timestamp(), msg));
         }
     }
 
     pub fn log_error(&mut self, msg: String) {
         if self.log_level >= log::Level::Error {
-            let _ = self.tx.send(format!("{}[ERROR]: {}", Self::get_timestamp(), msg));
+            let _ = self
+                .tx
+                .send(format!("{}[ERROR]: {}", Self::get_timestamp(), msg));
         }
     }
 }

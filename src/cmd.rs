@@ -1,11 +1,10 @@
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
-use std::{
-    fmt::format,
-    process::{Command, Stdio},
-};
+use std::process::{Command, Stdio};
 
 use crate::parameter;
+
+const TIMESTAMP_FORMAT: &str = "%Y-%m-%d %H:%M:%S%.3f";
 
 #[derive(serde::Deserialize, serde::Serialize, PartialEq, Clone)]
 pub struct Project {
@@ -125,6 +124,7 @@ pub fn start_rd() -> std::result::Result<(), String> {
         let path = std::env!("PATH");
         match std::process::Command::new("rdctl")
             .arg("start")
+            .arg("--application.start-in-background")
             .env("PATH", path)
             .creation_flags(0x08000000)
             .spawn()
@@ -141,7 +141,10 @@ pub fn start_rd() -> std::result::Result<(), String> {
         // .zshrcをsourceしてrdctlを実行
         match std::process::Command::new("zsh")
             .arg("-c")
-            .arg(format!("source {} && rdctl start", zshrc_path))
+            .arg(format!(
+                "source {} && rdctl start --application.start-in-background",
+                zshrc_path
+            ))
             .spawn()
         {
             Ok(_) => Ok(()),
@@ -214,6 +217,35 @@ pub fn get_probe_rs_versions() -> Option<String> {
     }
 }
 
+pub fn is_docker_running() -> Result<bool, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let path = std::env!("PATH");
+        match Command::new("docker")
+            .arg("info")
+            .arg("--format")
+            .arg("{{.ServerVersion}}")
+            .env("PATH", path)
+            .output()
+        {
+            Ok(output) => Ok(output.status.success()),
+            Err(e) => Err(format!("docker info failed: {}", e)),
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        match Command::new("docker")
+            .arg("info")
+            .arg("--format")
+            .arg("{{.ServerVersion}}")
+            .output()
+        {
+            Ok(output) => Ok(output.status.success()),
+            Err(e) => Err(format!("docker info failed: {}", e)),
+        }
+    }
+}
+
 impl ProbeRsDapServer {
     pub fn start(&mut self, tx: std::sync::mpsc::Sender<String>) {
         if self.status != DapServerStatus::Stopped {
@@ -240,8 +272,8 @@ impl ProbeRsDapServer {
                 let reader = std::io::BufReader::new(output);
                 for line in std::io::BufRead::lines(reader) {
                     let now = chrono::Local::now();
-                    now.format("%Y-%m-%d %H:%M:%S%.3f").to_string();
-                    let msg = format!("{}: {}", now, line.unwrap());
+                    let timestamp = now.format(TIMESTAMP_FORMAT).to_string();
+                    let msg = format!("{}: {}", timestamp, line.unwrap());
                     tx.send(msg).unwrap();
                 }
             });
@@ -271,8 +303,8 @@ impl ProbeRsDapServer {
                 let reader = std::io::BufReader::new(output);
                 for line in std::io::BufRead::lines(reader) {
                     let now = chrono::Local::now();
-                    now.format("%Y-%m-%d %H:%M:%S%.3f").to_string();
-                    let msg = format!("{}: {}", now, line.unwrap());
+                    let timestamp = now.format(TIMESTAMP_FORMAT).to_string();
+                    let msg = format!("{}: {}", timestamp, line.unwrap());
                     tx.send(msg).unwrap();
                 }
             });
@@ -299,28 +331,4 @@ pub fn are_apps_runnning(app_name: &str) -> bool {
         .filter(|p| p.name() == app_name)
         .count();
     return count >= 2;
-}
-
-pub fn is_app_installed(app_name: &str) -> bool {
-    #[cfg(target_os = "windows")]
-    {
-        let output = Command::new("powershell")
-            .arg("-Command")
-            .arg(format!(
-                "Get-Command {} -ErrorAction SilentlyContinue",
-                app_name
-            ))
-            .output()
-            .expect("failed to execute process");
-        output.status.success()
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let output = Command::new("sh")
-            .arg("-c")
-            .arg(format!("command -v {}", app_name))
-            .output()
-            .expect("failed to execute process");
-        output.status.success()
-    }
 }

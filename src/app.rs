@@ -1,14 +1,15 @@
 use crate::cmd;
 use crate::logger::DisplayBuffer;
 use crate::parameter;
+use crate::ui_modules::{DapServerPanel, LoggerPanel, ProjectCreatePanel};
 use crate::uiutil;
-use crate::uiutil::make_orange_button;
+use std::time::{Duration, Instant};
 
 const HELP_URL: &str = "https://github.com/Baker-link-Lab/baker-link-env/blob/main/README.md";
-const TEMPLATE_URL: &str = "https://github.com/Baker-link-Lab/bakerlink_tutorial_template";
 
 static INIT: std::sync::Once = std::sync::Once::new();
 
+/// Main application state
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)]
 pub struct EvnApp {
@@ -18,154 +19,201 @@ pub struct EvnApp {
     display_buffer: DisplayBuffer,
     info: bool,
     #[serde(skip)]
-    clipboard: arboard::Clipboard,
+    last_error: Option<String>,
+    #[serde(skip)]
+    docker_status: DockerStatus,
+    #[serde(skip)]
+    last_docker_check: Instant,
+    #[serde(skip)]
+    docker_prompt_dismissed: bool,
 }
 
 impl Default for EvnApp {
     fn default() -> Self {
-        let mut display_buffer = DisplayBuffer::new();
-
         Self {
             new_project: Default::default(),
             probe_rs_dap_server: Default::default(),
-            display_buffer: display_buffer,
+            display_buffer: DisplayBuffer::new(),
             info: true,
-            clipboard: arboard::Clipboard::new().unwrap(),
+            last_error: None,
+            docker_status: DockerStatus::Unknown,
+            last_docker_check: Instant::now(),
+            docker_prompt_dismissed: false,
         }
     }
 }
 
 impl EvnApp {
+    /// Create a new app instance from creation context
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        uiutil::set_fonts(cc);
+        uiutil::apply_theme(cc);
+
         if let Some(storage) = cc.storage {
             return eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
         }
         Default::default()
     }
-}
 
-impl EvnApp {
-    fn project_create_ui(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Create Project");
-        ui.horizontal(|ui| {
-            ui.label("Project name:");
-            ui.add(egui::TextEdit::singleline(&mut self.new_project.name).desired_width(100.0));
-            if ui.add(make_orange_button("create")).clicked() {
-                if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                    self.new_project.path = path.to_string_lossy().to_string();
-                    let join_path =
-                        std::path::Path::new(&self.new_project.path).join(&self.new_project.name);
-                    if join_path.exists() == false {
-                        match cmd::generate_project(&self.new_project.name, &self.new_project.path)
-                        {
-                            Ok(_) => {
-                                self.new_project.history_push();
-                                self.display_buffer.log_info(format!(
-                                    "Project {} generated",
-                                    join_path.to_str().unwrap(),
-                                ));
-                            }
-                            Err(e) => {
-                                self.display_buffer.log_error(format!(
-                                    "Project {} generate failed: {}",
-                                    join_path.to_str().unwrap(),
-                                    e,
-                                ));
-                            }
-                        }
-                    } else {
-                        self.display_buffer.log_info(format!(
-                            "Project {} already created",
-                            join_path.to_str().unwrap(),
-                        ));
-                    }
-                    if self.new_project.vscode_open_enabled {
-                        let _ = cmd::start_rd();
-                        match cmd::open_vscode(join_path.to_str().unwrap()) {
-                            Ok(_) => {
-                                self.display_buffer.log_info(format!(
-                                    "Visual Studio Code opened: {}",
-                                    join_path.to_str().unwrap()
-                                ));
-                            }
-                            Err(e) => {
-                                self.display_buffer.log_error(format!(
-                                    "Visual Studio Code open failed: {}: {}",
-                                    join_path.to_str().unwrap(),
-                                    e,
-                                ));
-                            }
-                        };
-                    }
-                }
-            }
-        });
-        ui.checkbox(
-            &mut self.new_project.vscode_open_enabled,
-            "Visual Studio Code open",
-        );
-        ui.hyperlink_to(
-            "Template Code",
-            TEMPLATE_URL,
-        );
-    }
-
-    fn probe_rs_dap_server_ui(&mut self, ui: &mut egui::Ui) {
-        ui.heading("probe-rs DAP Server");
-
-        let mut run_color = egui::Color32::GRAY;
-        let mut stop_color = egui::Color32::GRAY;
-        if self.probe_rs_dap_server.status == cmd::DapServerStatus::Stopped {
-            run_color = egui::Color32::GREEN;
-        } else {
-            stop_color = egui::Color32::RED;
-        }
-
-        ui.horizontal(|ui| {
-            ui.label("Port:");
-            ui.add(
-                egui::TextEdit::singleline(&mut self.probe_rs_dap_server.port).desired_width(50.0),
-            );
-            ui.add_space(1.0);
-            if ui.add(egui::Button::new("Run").fill(run_color)).clicked() {
-                let probe_rs_versoin = cmd::get_probe_rs_versions();
-                if probe_rs_versoin.is_none() {
-                    self.display_buffer
-                        .log_error("probe-rs not found".to_string());
-                } else {
-                    self.probe_rs_dap_server
-                        .start(self.display_buffer.tx.clone());
-                }
-            };
-            if ui.add(egui::Button::new("Stop").fill(stop_color)).clicked() {
-                if self.probe_rs_dap_server.stop() {
-                    self.display_buffer
-                        .log_info("probe-rs dap-server stopped".to_string());
-                };
-            }
-        });
-    }
-
+    /// Initialize the application (run once)
     fn initialize(&mut self) {
         INIT.call_once(|| {
-            let _ = cmd::start_rd();
             if cmd::are_apps_runnning("baker-link-env") {
+                self.last_error = Some("baker-link-env is already running".to_string());
                 self.display_buffer
                     .log_error("baker-link-env is already running".to_string());
             }
-
-            match cmd::start_rd() {
-                Ok(_) => {
-                    self.display_buffer.log_info("Rancher Desktop started".to_string());
-                }
-                Err(e) => {
-                    self.display_buffer.log_error(format!(
-                        "Rancher Desktop start failed: {}",
-                        e
-                    ));
-                }
-            }
         });
+    }
+
+    fn update_docker_status(&mut self) {
+        if self.last_docker_check.elapsed() < Duration::from_secs(3) {
+            return;
+        }
+        self.last_docker_check = Instant::now();
+        match cmd::is_docker_running() {
+            Ok(true) => {
+                self.docker_status = DockerStatus::Running;
+                self.docker_prompt_dismissed = false;
+            }
+            Ok(false) => self.docker_status = DockerStatus::Stopped,
+            Err(_) => self.docker_status = DockerStatus::Unknown,
+        }
+    }
+
+    fn show_docker_prompt(&mut self, ctx: &egui::Context) {
+        if self.docker_status != DockerStatus::Stopped || self.docker_prompt_dismissed {
+            return;
+        }
+
+        egui::Window::new("Rancher Desktop")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                ui.label("Docker is not running.");
+                ui.label("Start Rancher Desktop now?");
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.add(uiutil::make_primary_button("Start")).clicked() {
+                        match cmd::start_rd() {
+                            Ok(_) => {
+                                self.display_buffer
+                                    .log_info("Rancher Desktop started".to_string());
+                                self.docker_prompt_dismissed = true;
+                            }
+                            Err(e) => {
+                                self.last_error =
+                                    Some(format!("Rancher Desktop start failed: {}", e));
+                                self.display_buffer
+                                    .log_error(format!("Rancher Desktop start failed: {}", e));
+                            }
+                        }
+                        self.last_docker_check = Instant::now() - Duration::from_secs(4);
+                    }
+                    if ui.add(uiutil::make_chip_button("Not now")).clicked() {
+                        self.docker_prompt_dismissed = true;
+                    }
+                });
+            });
+    }
+
+    /// Show the top panel with help and history menu
+    fn show_top_panel(&mut self, ctx: &egui::Context) {
+        egui::TopBottomPanel::top("top_panel")
+            .frame(uiutil::header_frame())
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.vertical(|ui| {
+                        ui.label(uiutil::make_primary_heading(parameter::APP_NAME));
+                    });
+
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let (status_label, status_color) = match self.docker_status {
+                            DockerStatus::Running => ("Docker: On", uiutil::colors::STATUS_ON),
+                            DockerStatus::Stopped => ("Docker: Off", uiutil::colors::STATUS_OFF),
+                            DockerStatus::Unknown => ("Docker: ?", uiutil::colors::STATUS_UNKNOWN),
+                        };
+                        ui.horizontal(|ui| {
+                            ui.label(status_label);
+                            uiutil::status_dot(ui, status_color);
+                        });
+                        ui.add_space(8.0);
+
+                        if ui.add(uiutil::make_chip_button("Help")).clicked() {
+                            let _ = open::that(HELP_URL);
+                        }
+
+                        ui.menu_button("History", |ui| {
+                            for (i, pj) in self.new_project.history.clone().iter().enumerate() {
+                                if ui.button(&pj.get_path()).clicked() {
+                                    if pj.is_folder_exists() {
+                                        let _ = cmd::start_rd();
+                                        match cmd::open_vscode(&pj.get_path()) {
+                                            Ok(_) => {
+                                                self.display_buffer.log_info(format!(
+                                                    "Visual Studio Code opened: {}",
+                                                    pj.get_path()
+                                                ));
+                                            }
+                                            Err(e) => {
+                                                self.last_error =
+                                                    Some(format!("VSCode open failed: {}", e));
+                                                self.display_buffer.log_error(format!(
+                                                    "Visual Studio Code failed to open: {}: {}",
+                                                    pj.get_path(),
+                                                    e
+                                                ));
+                                            }
+                                        };
+                                    } else {
+                                        self.last_error =
+                                            Some(format!("Project not found: {}", pj.get_path()));
+                                        self.display_buffer.log_error(format!(
+                                            "Project not found: {}",
+                                            pj.get_path()
+                                        ));
+                                        self.new_project.history.remove(i);
+                                    }
+                                }
+                            }
+                        });
+                    });
+                });
+
+                let rect = ui.max_rect();
+                let line_rect = egui::Rect::from_min_max(
+                    egui::pos2(rect.left(), rect.bottom() - 2.0),
+                    egui::pos2(rect.right(), rect.bottom()),
+                );
+                ui.painter()
+                    .rect_filled(line_rect, 0.0, uiutil::colors::ACCENT);
+            });
+    }
+
+    /// Show the error display panel
+    fn show_error_panel(&mut self, ctx: &egui::Context) {
+        let should_show_error = self.last_error.is_some();
+        if should_show_error {
+            let error_text = self.last_error.clone().unwrap_or_default();
+            egui::TopBottomPanel::bottom("error_panel")
+                .frame(egui::Frame {
+                    fill: uiutil::colors::ERROR,
+                    inner_margin: 8.0.into(),
+                    ..Default::default()
+                })
+                .show(ctx, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new(format!("[ERROR] {}", error_text))
+                                .color(uiutil::colors::TEXT_PRIMARY),
+                        );
+                        if ui.add(uiutil::make_chip_button("Dismiss")).clicked() {
+                            self.last_error = None;
+                        }
+                    });
+                });
+        }
     }
 }
 
@@ -176,105 +224,45 @@ impl eframe::App for EvnApp {
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.initialize();
-        
-        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                if ui.button("help").clicked() {
-                    let _ = open::that(HELP_URL);
-                };
-                ui.menu_button("history", |ui| {
-                    for (i, pj) in self.new_project.history.clone().iter().enumerate() {
-                        if ui.button(&pj.get_path()).clicked() {
-                            if pj.is_folder_exists() {
-                                let _ = cmd::start_rd();
-                                match cmd::open_vscode(&pj.get_path()) {
-                                    Ok(_) => {
-                                        self.display_buffer.log_info(format!(
-                                            "Visual Studio Code opened: {}",
-                                            pj.get_path()
-                                        ));
-                                    }
-                                    Err(e) => {
-                                        self.display_buffer.log_error(format!(
-                                            "Visual Studio Code open failed: {}: {}",
-                                            pj.get_path(),
-                                            e
-                                        ));
-                                    }
-                                };
-                            } else {
-                                self.display_buffer
-                                    .log_error(format!("Project not found: {}", pj.get_path()));
-                                self.new_project.history.remove(i);
-                            }
-                        }
-                    }
-                });
-            });
-        });
+        self.update_docker_status();
+        self.show_top_panel(ctx);
+        self.show_error_panel(ctx);
+        self.show_docker_prompt(ctx);
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.heading(
-                    egui::RichText::new(parameter::APP_NAME)
-                        .color(egui::Color32::from_hex("#DD7032").unwrap())
-                        .size(32.0),
-                );
+            // Project Creation Section
+            let frame_project = uiutil::card_frame();
+            frame_project.show(ui, |ui| {
+                ProjectCreatePanel::show(ui, &mut self.new_project, &mut self.display_buffer);
             });
 
-            let frame_pj_create = uiutil::get_frame();
-            frame_pj_create.show(ui, |ui| {
-                self.project_create_ui(ui);
+            ui.add_space(8.0);
+
+            // DAP Server Section
+            let frame_dap = uiutil::card_frame();
+            frame_dap.show(ui, |ui| {
+                DapServerPanel::show(ui, &mut self.probe_rs_dap_server, &mut self.display_buffer);
             });
 
-            let probers_dapserver_frame = uiutil::get_frame();
-            probers_dapserver_frame.show(ui, |ui| {
-                self.probe_rs_dap_server_ui(ui);
-            });
+            ui.add_space(8.0);
 
-            egui::TopBottomPanel::bottom("bottom_panel").show_inside(ui, |ui| {
-                ui.heading("Log");
-                self.display_buffer.channel_recv();
-
-                let text_style = egui::TextStyle::Body;
-                let row_height = ui.text_style_height(&text_style);
-                let num_rows = self.display_buffer.buffer.len();
-                egui::ScrollArea::vertical().auto_shrink(false).show_rows(
-                    ui,
-                    row_height,
-                    num_rows,
-                    |ui, row_range| {
-                        egui::Frame::none().inner_margin(10.0).show(ui, |ui| {
-                            for i in row_range {
-                                ui.label(self.display_buffer.buffer[i].clone());
-                                ui.add_space(0.12);
-                            }
-                        });
-                    },
-                );
-                ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-                    powered_by_egui_and_eframe(ui);
-                });
+            // Logger Section
+            let frame_logger = uiutil::card_frame_alt();
+            frame_logger.show(ui, |ui| {
+                LoggerPanel::show(ui, &mut self.display_buffer);
             });
         });
 
         if self.info {
-           let _ = open::that(HELP_URL);
-           self.info = false;
+            let _ = open::that(HELP_URL);
+            self.info = false;
         }
     }
 }
 
-fn powered_by_egui_and_eframe(ui: &mut egui::Ui) {
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 0.0;
-        ui.label("Powered by ");
-        ui.hyperlink_to("egui", "https://github.com/emilk/egui");
-        ui.label(" and ");
-        ui.hyperlink_to(
-            "eframe",
-            "https://github.com/emilk/egui/tree/master/crates/eframe",
-        );
-        ui.label(".");
-    });
+#[derive(Copy, Clone, PartialEq)]
+enum DockerStatus {
+    Unknown,
+    Running,
+    Stopped,
 }
