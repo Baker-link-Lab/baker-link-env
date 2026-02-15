@@ -32,15 +32,12 @@ impl DapServerPanel {
                 .add_enabled(can_run, uiutil::make_primary_button("Run"))
                 .clicked()
             {
-                let probe_rs_version = cmd::get_probe_rs_versions();
-                if probe_rs_version.is_none() {
-                    display_buffer.log_error("probe-rs not found. Please install it.".to_string());
-                } else {
-                    probe_rs_dap_server.start(display_buffer.tx.clone());
-                    display_buffer.log_info(format!(
+                match probe_rs_dap_server.start(display_buffer.tx.clone()) {
+                    Ok(()) => display_buffer.log_info(format!(
                         "probe-rs DAP Server started on port {}",
                         probe_rs_dap_server.port
-                    ));
+                    )),
+                    Err(error) => display_buffer.log_error(error),
                 }
             };
             if ui

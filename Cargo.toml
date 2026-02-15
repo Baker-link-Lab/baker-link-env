@@ -20,11 +20,15 @@ log = "0.4"
 serde = { version = "1", features = ["derive"] }
 env_logger = "0.11.3"
 rfd = "0.14.1"
-cargo-generate = "0.21.3"
+cargo-generate = "0.23"
 anyhow = "1.0.86"
 chrono = "0.4.38"
 sysinfo = "0.30.13"
 open = "5.3.0"
+probe-rs-tools = { path = "external/probe-rs/probe-rs-tools" }
+tokio = { version = "1", features = ["rt", "time"] }
+tokio-util = "0.7"
+time = "0.3"
 
 
 [package.metadata.packager]

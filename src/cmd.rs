@@ -1,10 +1,15 @@
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
-use std::process::{Command, Stdio};
+use std::process::Command;
+use std::thread;
+
+use probe_rs_tools::cmd::dap_server;
+use time::UtcOffset;
+use tokio::runtime::Builder;
+use tokio_util::sync::CancellationToken;
 
 use crate::parameter;
 
-const TIMESTAMP_FORMAT: &str = "%Y-%m-%d %H:%M:%S%.3f";
 
 #[derive(serde::Deserialize, serde::Serialize, PartialEq, Clone)]
 pub struct Project {
@@ -39,7 +44,9 @@ pub struct NewProject {
 pub struct ProbeRsDapServer {
     pub port: String,
     #[serde(skip)]
-    child: Option<std::process::Child>,
+    shutdown: Option<CancellationToken>,
+    #[serde(skip)]
+    handle: Option<std::thread::JoinHandle<()>>,
     #[serde(skip)]
     pub status: DapServerStatus,
 }
@@ -72,7 +79,8 @@ impl Default for ProbeRsDapServer {
     fn default() -> Self {
         Self {
             port: 50001.to_string(),
-            child: None,
+            shutdown: None,
+            handle: None,
             status: DapServerStatus::Stopped,
         }
     }
@@ -247,76 +255,59 @@ pub fn is_docker_running() -> Result<bool, String> {
 }
 
 impl ProbeRsDapServer {
-    pub fn start(&mut self, tx: std::sync::mpsc::Sender<String>) {
+    pub fn start(&mut self, tx: std::sync::mpsc::Sender<String>) -> Result<(), String> {
         if self.status != DapServerStatus::Stopped {
-            return;
+            return Ok(());
         }
-        let path = std::env!("PATH");
-        #[cfg(target_os = "windows")]
-        {
-            let mut cmd: Command = Command::new("probe-rs");
-            cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
-            let mut child = cmd
-                .env("PATH", path)
-                .arg("dap-server")
-                .arg("--port")
-                .arg(self.port.to_string())
-                .creation_flags(0x08000000)
-                .spawn()
-                .unwrap();
+        let port = self
+            .port
+            .parse::<u16>()
+            .map_err(|_| "Invalid port number".to_string())?;
+        let shutdown = CancellationToken::new();
+        let shutdown_task = shutdown.clone();
+        let log_tx = tx.clone();
 
-            let output = child.stderr.take().unwrap();
-            self.child = Some(child);
-
-            std::thread::spawn(move || {
-                let reader = std::io::BufReader::new(output);
-                for line in std::io::BufRead::lines(reader) {
-                    let now = chrono::Local::now();
-                    let timestamp = now.format(TIMESTAMP_FORMAT).to_string();
-                    let msg = format!("{}: {}", timestamp, line.unwrap());
-                    tx.send(msg).unwrap();
+        let handle = thread::spawn(move || {
+            let runtime = match Builder::new_current_thread().enable_all().build() {
+                Ok(runtime) => runtime,
+                Err(error) => {
+                    let _ = log_tx.send(format!("Failed to start runtime: {error}"));
+                    return;
                 }
-            });
-        }
+            };
 
-        #[cfg(target_os = "macos")]
-        {
-            let home_dir = std::env::var("HOME").unwrap();
-            let zshrc_path = format!("{}/.zshrc", home_dir);
+            let offset = UtcOffset::current_local_offset().unwrap_or(UtcOffset::UTC);
+            let result = runtime.block_on(dap_server::run_with_shutdown_on_port(
+                port,
+                false,
+                None,
+                offset,
+                shutdown_task,
+            ));
 
-            let mut cmd: Command = Command::new("zsh");
-            cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
-            let mut child = cmd
-                .arg("-c")
-                .arg(format!(
-                    "source {} && probe-rs dap-server --port {}",
-                    zshrc_path, self.port
-                ))
-                .env("RUST_LOG", "debug")
-                .spawn()
-                .unwrap();
+            if let Err(error) = result {
+                let _ = log_tx.send(format!("DAP server stopped: {error}"));
+            }
+        });
 
-            let output = child.stderr.take().unwrap();
-            self.child = Some(child);
-
-            std::thread::spawn(move || {
-                let reader = std::io::BufReader::new(output);
-                for line in std::io::BufRead::lines(reader) {
-                    let now = chrono::Local::now();
-                    let timestamp = now.format(TIMESTAMP_FORMAT).to_string();
-                    let msg = format!("{}: {}", timestamp, line.unwrap());
-                    tx.send(msg).unwrap();
-                }
-            });
-        }
-        self.status = DapServerStatus::Running(self.port.parse().unwrap());
+        self.shutdown = Some(shutdown);
+        self.handle = Some(handle);
+        self.status = DapServerStatus::Running(port);
+        Ok(())
     }
 
     pub fn stop(&mut self) -> bool {
         if self.status == DapServerStatus::Stopped {
             return false;
         }
-        self.child.as_mut().unwrap().kill().unwrap();
+        if let Some(shutdown) = self.shutdown.take() {
+            shutdown.cancel();
+        }
+        if let Some(handle) = self.handle.take() {
+            thread::spawn(move || {
+                let _ = handle.join();
+            });
+        }
         self.status = DapServerStatus::Stopped;
         true
     }
