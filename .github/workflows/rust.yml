@@ -6,7 +6,7 @@ permissions:
 on:
   push:
     tags:
-        - 'v*.*.*'
+      - "v*.*.*"
 
 env:
   CARGO_TERM_COLOR: always
@@ -17,21 +17,28 @@ jobs:
       fail-fast: true
       matrix:
         job:
-            - {os: "windows-latest", path: "dist/*.exe"}
-            - {os: "macos-latest", path: "dist/*.dmg"}
+          - { os: "windows-latest", path: "dist/*.exe" }
+          - { os: "macos-latest", path: "dist/*.dmg" }
 
     runs-on: ${{ matrix.job.os }}
 
     steps:
-    - uses: actions/checkout@v4
-    - name: Install cargo-packager
-      run: cargo install cargo-packager --locked
-    - name: Build
-      run: cargo packager --release
-    - name: Release
-      uses: softprops/action-gh-release@v1
-      with:
-        files: |
-         ${{ matrix.job.path }}
-      # env:
-        # GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/checkout@v4
+      - name: Install cargo-packager
+        run: cargo install cargo-packager --locked
+
+      - name: Build (Windows)
+        run: cargo packager --release --formats nsis
+        if: matrix.job.os == 'windows-latest'
+
+      - name: Build (macOS)
+        run: cargo packager --release --formats dmg
+        if: matrix.job.os == 'macos-latest'
+
+      - name: Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            ${{ matrix.job.path }}
+          # GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # env:
