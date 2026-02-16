@@ -133,19 +133,7 @@ impl EvnApp {
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     if ui.add(uiutil::make_primary_button("Start")).clicked() {
-                        match cmd::start_rd() {
-                            Ok(_) => {
-                                self.display_buffer
-                                    .log_info("Rancher Desktop started".to_string());
-                                self.docker_prompt_dismissed = true;
-                            }
-                            Err(e) => {
-                                let message = format!("Rancher Desktop start failed: {}", e);
-                                self.set_error(message.clone());
-                                self.log_error(message);
-                            }
-                        }
-                        self.last_docker_check = Instant::now() - Duration::from_secs(4);
+                        self.start_rancher_desktop();
                     }
                     if ui.add(uiutil::make_chip_button("Not now")).clicked() {
                         self.docker_prompt_dismissed = true;
@@ -162,6 +150,9 @@ impl EvnApp {
                 ui.horizontal(|ui| {
                     ui.vertical(|ui| {
                         ui.label(uiutil::make_primary_heading(parameter::APP_NAME));
+                        ui.label(uiutil::make_section_subtitle(
+                            &parameter::build_version_label(),
+                        ));
                     });
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -175,6 +166,12 @@ impl EvnApp {
                             uiutil::status_dot(ui, status_color);
                         });
                         ui.add_space(8.0);
+
+                        if self.docker_status == DockerStatus::Stopped
+                            && ui.add(uiutil::make_primary_button("Start RD")).clicked()
+                        {
+                            self.start_rancher_desktop();
+                        }
 
                         if ui.add(uiutil::make_chip_button("Help")).clicked() {
                             let _ = open::that(HELP_URL);
@@ -265,6 +262,22 @@ impl EvnApp {
                 ));
             }
         };
+    }
+
+    fn start_rancher_desktop(&mut self) {
+        match cmd::start_rd() {
+            Ok(_) => {
+                self.display_buffer
+                    .log_info("Rancher Desktop started".to_string());
+                self.docker_prompt_dismissed = true;
+            }
+            Err(e) => {
+                let message = format!("Rancher Desktop start failed: {}", e);
+                self.set_error(message.clone());
+                self.log_error(message);
+            }
+        }
+        self.last_docker_check = Instant::now() - Duration::from_secs(4);
     }
 
     fn set_error(&mut self, msg: String) {
