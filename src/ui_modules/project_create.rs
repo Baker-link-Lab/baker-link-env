@@ -30,43 +30,38 @@ impl ProjectCreatePanel {
                 if let Some(path) = rfd::FileDialog::new().pick_folder() {
                     new_project.path = path.to_string_lossy().to_string();
                     let join_path = std::path::Path::new(&new_project.path).join(&new_project.name);
+                    let join_path_str = join_path.to_str().unwrap().to_string();
                     if !join_path.exists() {
                         match cmd::generate_project(&new_project.name, &new_project.path) {
                             Ok(_) => {
                                 new_project.history_push();
-                                display_buffer.log_info(format!(
-                                    "Project {} generated",
-                                    join_path.to_str().unwrap(),
-                                ));
+                                display_buffer
+                                    .log_info(format!("Project {} generated", join_path_str,));
                             }
                             Err(e) => {
                                 display_buffer.log_error(format!(
                                     "Project {} generation failed: {}",
-                                    join_path.to_str().unwrap(),
-                                    e,
+                                    join_path_str, e,
                                 ));
                             }
                         }
                     } else {
-                        display_buffer.log_info(format!(
-                            "Project {} already exists",
-                            join_path.to_str().unwrap(),
-                        ));
+                        display_buffer
+                            .log_info(format!("Project {} already exists", join_path_str,));
                     }
                     if new_project.vscode_open_enabled {
                         let _ = cmd::start_rd();
-                        match cmd::open_vscode(join_path.to_str().unwrap()) {
+                        match cmd::open_vscode(&join_path_str) {
                             Ok(_) => {
                                 display_buffer.log_info(format!(
                                     "Visual Studio Code opened: {}",
-                                    join_path.to_str().unwrap()
+                                    join_path_str
                                 ));
                             }
                             Err(e) => {
                                 display_buffer.log_error(format!(
                                     "Visual Studio Code failed to open: {}: {}",
-                                    join_path.to_str().unwrap(),
-                                    e,
+                                    join_path_str, e,
                                 ));
                             }
                         };

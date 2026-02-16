@@ -30,18 +30,18 @@ impl DisplayBuffer {
     }
 
     pub fn log_info(&mut self, msg: String) {
-        if self.log_level >= log::Level::Info {
-            let _ = self
-                .tx
-                .send(format!("{}[INFO]: {}", Self::get_timestamp(), msg));
-        }
+        self.log_with_level(log::Level::Info, "INFO", msg);
     }
 
     pub fn log_error(&mut self, msg: String) {
-        if self.log_level >= log::Level::Error {
+        self.log_with_level(log::Level::Error, "ERROR", msg);
+    }
+
+    fn log_with_level(&mut self, level: log::Level, label: &str, msg: String) {
+        if self.log_level >= level {
             let _ = self
                 .tx
-                .send(format!("{}[ERROR]: {}", Self::get_timestamp(), msg));
+                .send(format!("{}[{}]: {}", Self::get_timestamp(), label, msg));
         }
     }
 }

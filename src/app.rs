@@ -3,9 +3,12 @@ use crate::logger::DisplayBuffer;
 use crate::parameter;
 use crate::ui_modules::{DapServerPanel, LoggerPanel, ProjectCreatePanel};
 use crate::uiutil;
+use std::sync::mpsc::TryRecvError;
+use std::thread;
 use std::time::{Duration, Instant};
 
 const HELP_URL: &str = "https://github.com/Baker-link-Lab/baker-link-env/blob/main/README.md";
+const DOCKER_POLL_INTERVAL: Duration = Duration::from_secs(3);
 
 static INIT: std::sync::Once = std::sync::Once::new();
 
@@ -26,6 +29,10 @@ pub struct EvnApp {
     last_docker_check: Instant,
     #[serde(skip)]
     docker_prompt_dismissed: bool,
+    #[serde(skip)]
+    docker_check_inflight: bool,
+    #[serde(skip)]
+    docker_check_rx: Option<std::sync::mpsc::Receiver<Result<bool, String>>>,
 }
 
 impl Default for EvnApp {
@@ -39,6 +46,8 @@ impl Default for EvnApp {
             docker_status: DockerStatus::Unknown,
             last_docker_check: Instant::now(),
             docker_prompt_dismissed: false,
+            docker_check_inflight: false,
+            docker_check_rx: None,
         }
     }
 }
@@ -58,27 +67,55 @@ impl EvnApp {
     /// Initialize the application (run once)
     fn initialize(&mut self) {
         INIT.call_once(|| {
-            if cmd::are_apps_runnning("baker-link-env") {
-                self.last_error = Some("baker-link-env is already running".to_string());
-                self.display_buffer
-                    .log_error("baker-link-env is already running".to_string());
+            if cmd::are_apps_running("baker-link-env") {
+                let message = "baker-link-env is already running".to_string();
+                self.set_error(message.clone());
+                self.log_error(message);
             }
         });
     }
 
     fn update_docker_status(&mut self) {
-        if self.last_docker_check.elapsed() < Duration::from_secs(3) {
+        if let Some(rx) = &self.docker_check_rx {
+            match rx.try_recv() {
+                Ok(result) => {
+                    self.docker_check_inflight = false;
+                    self.docker_check_rx = None;
+                    self.last_docker_check = Instant::now();
+                    match result {
+                        Ok(true) => {
+                            self.docker_status = DockerStatus::Running;
+                            self.docker_prompt_dismissed = false;
+                        }
+                        Ok(false) => self.docker_status = DockerStatus::Stopped,
+                        Err(_) => self.docker_status = DockerStatus::Unknown,
+                    }
+                }
+                Err(TryRecvError::Empty) => return,
+                Err(TryRecvError::Disconnected) => {
+                    self.docker_check_inflight = false;
+                    self.docker_check_rx = None;
+                    self.docker_status = DockerStatus::Unknown;
+                }
+            }
+        }
+
+        if self.docker_check_inflight {
             return;
         }
-        self.last_docker_check = Instant::now();
-        match cmd::is_docker_running() {
-            Ok(true) => {
-                self.docker_status = DockerStatus::Running;
-                self.docker_prompt_dismissed = false;
-            }
-            Ok(false) => self.docker_status = DockerStatus::Stopped,
-            Err(_) => self.docker_status = DockerStatus::Unknown,
+
+        if self.last_docker_check.elapsed() < DOCKER_POLL_INTERVAL {
+            return;
         }
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.docker_check_rx = Some(rx);
+        self.docker_check_inflight = true;
+        self.last_docker_check = Instant::now();
+        thread::spawn(move || {
+            let result = cmd::is_docker_running();
+            let _ = tx.send(result);
+        });
     }
 
     fn show_docker_prompt(&mut self, ctx: &egui::Context) {
@@ -103,10 +140,9 @@ impl EvnApp {
                                 self.docker_prompt_dismissed = true;
                             }
                             Err(e) => {
-                                self.last_error =
-                                    Some(format!("Rancher Desktop start failed: {}", e));
-                                self.display_buffer
-                                    .log_error(format!("Rancher Desktop start failed: {}", e));
+                                let message = format!("Rancher Desktop start failed: {}", e);
+                                self.set_error(message.clone());
+                                self.log_error(message);
                             }
                         }
                         self.last_docker_check = Instant::now() - Duration::from_secs(4);
@@ -144,40 +180,21 @@ impl EvnApp {
                             let _ = open::that(HELP_URL);
                         }
 
+                        let mut history_action: Option<HistoryAction> = None;
                         ui.menu_button("History", |ui| {
-                            for (i, pj) in self.new_project.history.clone().iter().enumerate() {
-                                if ui.button(&pj.get_path()).clicked() {
+                            for (i, pj) in self.new_project.history.iter().enumerate() {
+                                let path = pj.get_path();
+                                if ui.button(&path).clicked() {
                                     if pj.is_folder_exists() {
-                                        let _ = cmd::start_rd();
-                                        match cmd::open_vscode(&pj.get_path()) {
-                                            Ok(_) => {
-                                                self.display_buffer.log_info(format!(
-                                                    "Visual Studio Code opened: {}",
-                                                    pj.get_path()
-                                                ));
-                                            }
-                                            Err(e) => {
-                                                self.last_error =
-                                                    Some(format!("VSCode open failed: {}", e));
-                                                self.display_buffer.log_error(format!(
-                                                    "Visual Studio Code failed to open: {}: {}",
-                                                    pj.get_path(),
-                                                    e
-                                                ));
-                                            }
-                                        };
+                                        history_action = Some(HistoryAction::Open(path));
                                     } else {
-                                        self.last_error =
-                                            Some(format!("Project not found: {}", pj.get_path()));
-                                        self.display_buffer.log_error(format!(
-                                            "Project not found: {}",
-                                            pj.get_path()
-                                        ));
-                                        self.new_project.history.remove(i);
+                                        history_action =
+                                            Some(HistoryAction::RemoveMissing { index: i, path });
                                     }
                                 }
                             }
                         });
+                        self.handle_history_action(history_action);
                     });
                 });
 
@@ -214,6 +231,48 @@ impl EvnApp {
                     });
                 });
         }
+    }
+
+    fn handle_history_action(&mut self, action: Option<HistoryAction>) {
+        let action = match action {
+            Some(action) => action,
+            None => return,
+        };
+
+        match action {
+            HistoryAction::Open(path) => self.open_vscode_for_path(&path),
+            HistoryAction::RemoveMissing { index, path } => {
+                let message = format!("Project not found: {}", path);
+                self.set_error(message.clone());
+                self.log_error(message);
+                self.new_project.history.remove(index);
+            }
+        }
+    }
+
+    fn open_vscode_for_path(&mut self, path: &str) {
+        let _ = cmd::start_rd();
+        match cmd::open_vscode(path) {
+            Ok(_) => {
+                self.display_buffer
+                    .log_info(format!("Visual Studio Code opened: {}", path));
+            }
+            Err(e) => {
+                self.set_error(format!("VSCode open failed: {}", e));
+                self.log_error(format!(
+                    "Visual Studio Code failed to open: {}: {}",
+                    path, e
+                ));
+            }
+        };
+    }
+
+    fn set_error(&mut self, msg: String) {
+        self.last_error = Some(msg);
+    }
+
+    fn log_error(&mut self, msg: String) {
+        self.display_buffer.log_error(msg);
     }
 }
 
@@ -265,4 +324,9 @@ enum DockerStatus {
     Unknown,
     Running,
     Stopped,
+}
+
+enum HistoryAction {
+    Open(String),
+    RemoveMissing { index: usize, path: String },
 }
