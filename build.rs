@@ -18,8 +18,11 @@ fn main() {
 fn git_metadata() -> (String, String) {
     let root = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
     let hash = run_git(&root, &["rev-parse", "HEAD"]).unwrap_or_else(|| "unknown".to_string());
-    let tag = run_git(&root, &["describe", "--tags", "--match", "v*.*.*", "--abbrev=0"])
-        .unwrap_or_default();
+    let tag = run_git(
+        &root,
+        &["describe", "--tags", "--match", "v*.*.*", "--abbrev=0"],
+    )
+    .unwrap_or_default();
     (hash, tag)
 }
 
