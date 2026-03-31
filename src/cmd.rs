@@ -244,6 +244,7 @@ fn open_vscode_windows(path: &str) -> Result<std::process::Output, std::io::Erro
     std::process::Command::new("code.cmd")
         .arg(path)
         .env("PATH", env_path)
+        .creation_flags(CREATE_NO_WINDOW)
         .output()
 }
 
@@ -297,6 +298,7 @@ fn docker_info_windows() -> Result<bool, String> {
         .arg("--format")
         .arg("{{.ServerVersion}}")
         .env("PATH", path)
+        .creation_flags(CREATE_NO_WINDOW)
         .output()
         .map_err(|e| format!("docker info failed: {}", e))?;
     Ok(output.status.success())

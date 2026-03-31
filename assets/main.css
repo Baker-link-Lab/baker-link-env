@@ -372,8 +372,8 @@ html, body {
     border: 1px solid var(--bkl-border);
     border-radius: 12px;
     padding: 12px 14px;
-    max-height: 320px;
-    overflow-y: auto;
+    height: 280px;
+    overflow-y: scroll;
     font-family: 'Consolas', 'SF Mono', 'Fira Code', monospace;
     font-size: 12px;
     line-height: 1.6;
@@ -477,4 +477,249 @@ html, body {
 /* ---- Checkbox accent ---- */
 input[type="checkbox"] {
     accent-color: var(--bkl-orange);
+}
+
+/* ---- Modal overlay ---- */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    animation: fade-in 200ms ease-out;
+}
+
+.modal {
+    background: var(--bkl-surface);
+    border: 1px solid var(--bkl-border);
+    border-radius: 14px;
+    padding: 24px;
+    min-width: 320px;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+    animation: scale-in 200ms ease-out;
+}
+
+.modal-title {
+    margin: 0 0 12px;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--bkl-text);
+}
+
+.modal-text {
+    margin: 0 0 4px;
+    font-size: 13px;
+    color: var(--bkl-text-muted);
+}
+
+.modal-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 20px;
+}
+
+@keyframes fade-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+@keyframes scale-in {
+    from { opacity: 0; transform: scale(0.95); }
+    to   { opacity: 1; transform: scale(1); }
+}
+
+/* ---- Dropdown (History) ---- */
+.dropdown-container {
+    position: relative;
+}
+
+.dropdown-menu {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 4px;
+    min-width: 300px;
+    max-height: 320px;
+    overflow-y: auto;
+    background: var(--bkl-surface);
+    border: 1px solid var(--bkl-border);
+    border-radius: 10px;
+    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
+    z-index: 40;
+    animation: scale-in 150ms ease-out;
+}
+
+.dropdown-menu::-webkit-scrollbar {
+    width: 5px;
+}
+.dropdown-menu::-webkit-scrollbar-thumb {
+    background: var(--bkl-border);
+    border-radius: 3px;
+}
+
+.dropdown-empty {
+    padding: 16px;
+    text-align: center;
+    font-size: 12px;
+    color: var(--bkl-text-faint);
+}
+
+.dropdown-item {
+    display: block;
+    width: 100%;
+    padding: 10px 14px;
+    border: none;
+    background: transparent;
+    color: var(--bkl-text);
+    text-align: left;
+    cursor: pointer;
+    border-bottom: 1px solid rgba(42, 39, 51, 0.4);
+    transition: background 120ms;
+}
+
+.dropdown-item:last-child {
+    border-bottom: none;
+}
+
+.dropdown-item:hover {
+    background: var(--bkl-surface-hover);
+}
+
+.dropdown-item-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--bkl-text);
+}
+
+.dropdown-item-path {
+    font-size: 11px;
+    color: var(--bkl-text-faint);
+    margin-top: 2px;
+    overflow-wrap: anywhere;
+}
+
+/* ===== Splash Screen ===== */
+.splash-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: #0a0810;
+    cursor: pointer;
+    overflow: hidden;
+    animation: splash-fade-in 600ms ease-out;
+}
+
+/* Animated orange glow orbs */
+.splash-glow {
+    position: absolute;
+    width: 340px;
+    height: 340px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(224, 122, 31, 0.25) 0%, transparent 70%);
+    filter: blur(60px);
+    animation: splash-orb-1 3s ease-in-out infinite alternate;
+}
+.splash-glow-2 {
+    width: 260px;
+    height: 260px;
+    background: radial-gradient(circle, rgba(240, 150, 63, 0.18) 0%, transparent 70%);
+    filter: blur(50px);
+    animation: splash-orb-2 3s ease-in-out infinite alternate;
+}
+
+@keyframes splash-orb-1 {
+    0%   { transform: translate(-80px, -40px) scale(1); }
+    100% { transform: translate(60px, 30px) scale(1.15); }
+}
+@keyframes splash-orb-2 {
+    0%   { transform: translate(100px, 50px) scale(1.1); }
+    100% { transform: translate(-60px, -20px) scale(0.9); }
+}
+
+/* Logo container with shimmer */
+.splash-content {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: splash-logo-enter 800ms cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation-delay: 200ms;
+}
+
+.splash-logo {
+    height: 40px;
+    width: auto;
+    position: relative;
+    z-index: 1;
+    filter: drop-shadow(0 0 24px rgba(224, 122, 31, 0.4));
+}
+
+/* Shimmer sweep across logo */
+.splash-shimmer {
+    position: absolute;
+    inset: -10px -40px;
+    background: linear-gradient(
+        105deg,
+        transparent 30%,
+        rgba(255, 255, 255, 0.15) 45%,
+        rgba(255, 248, 238, 0.25) 50%,
+        rgba(255, 255, 255, 0.15) 55%,
+        transparent 70%
+    );
+    animation: splash-shimmer-sweep 2s ease-in-out infinite;
+    animation-delay: 800ms;
+    pointer-events: none;
+}
+
+@keyframes splash-shimmer-sweep {
+    0%   { transform: translateX(-200%); }
+    100% { transform: translateX(200%); }
+}
+
+@keyframes splash-logo-enter {
+    0% {
+        opacity: 0;
+        transform: scale(0.7) translateY(10px);
+        filter: blur(8px);
+    }
+    100% {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+        filter: blur(0);
+    }
+}
+
+.splash-subtitle {
+    margin: 20px 0 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--bkl-text-muted);
+    letter-spacing: 0.08em;
+    animation: splash-text-enter 600ms ease-out both;
+    animation-delay: 600ms;
+}
+
+.splash-version {
+    margin: 6px 0 0;
+    font-size: 11px;
+    color: var(--bkl-text-faint);
+    animation: splash-text-enter 600ms ease-out both;
+    animation-delay: 800ms;
+}
+
+@keyframes splash-text-enter {
+    0% { opacity: 0; transform: translateY(8px); }
+    100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes splash-fade-in {
+    0% { opacity: 0; }
+    100% { opacity: 1; }
 }
