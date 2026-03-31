@@ -5,14 +5,14 @@ mod logger;
 mod parameter;
 
 use dioxus::desktop::{Config, LogicalSize, WindowBuilder};
+use dioxus::desktop::tao::window::Icon;
+use dioxus::desktop::trayicon::{self, menu as tray_menu};
 use dioxus::prelude::*;
 use log::LevelFilter;
 use std::sync::{Mutex, OnceLock};
-use std::thread;
 use std::time::Duration;
 
 const MAIN_CSS: Asset = asset!("/assets/main.css");
-const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
 const LOGO_IMG: Asset = asset!("/assets/baker-link-logo.png");
 const HISTORY_MAX: usize = 10;
 
@@ -41,19 +41,84 @@ fn main() {
         logger.filter_level(LevelFilter::Off);
     }
     let _ = logger.try_init();
+    let icon = load_window_icon();
     dioxus::LaunchBuilder::desktop()
         .with_cfg(
-            Config::new().with_window(
-                WindowBuilder::new()
-                    .with_title(parameter::APP_NAME)
-                    .with_inner_size(LogicalSize::new(920.0, 680.0)),
-            ),
+            Config::new()
+                .with_icon(icon)
+                .with_window(
+                    WindowBuilder::new()
+                        .with_title(parameter::APP_NAME)
+                        .with_inner_size(LogicalSize::new(920.0, 680.0)),
+                )
+                // --- System tray / menu bar support ---
+                // ×ボタンでウィンドウを閉じずに非表示にする
+                .with_close_behaviour(
+                    dioxus::desktop::WindowCloseBehaviour::WindowHides,
+                )
+                // 全ウィンドウが非表示でもプロセスを終了しない（トレイ常駐）
+                .with_exits_when_last_window_closes(false)
+                // トレイアイコン左クリックでウィンドウを再表示する（デフォルトtrue、明示）
+                .with_tray_icon_show_window_on_click(true),
         )
         .launch(App);
 }
 
 #[component]
 fn App() -> Element {
+    // ===== System tray icon setup (runs once on mount) =====
+    // トレイメニューを構築: Open / Hide / Quit
+    let menu_open = tray_menu::MenuItem::new("Open", true, None);
+    let menu_hide = tray_menu::MenuItem::new("Hide", true, None);
+    let menu_quit = tray_menu::MenuItem::new("Quit", true, None);
+
+    // メニューID を保持（イベントハンドラで照合に使う）
+    let id_open = menu_open.id().clone();
+    let id_hide = menu_hide.id().clone();
+    let id_quit = menu_quit.id().clone();
+
+    let tray_menu_obj = tray_menu::Menu::new();
+    let _ = tray_menu_obj.append_items(&[
+        &menu_open,
+        &tray_menu::PredefinedMenuItem::separator(),
+        &menu_hide,
+        &tray_menu::PredefinedMenuItem::separator(),
+        &menu_quit,
+    ]);
+
+    // アイコンを icon/icon.png から読み込み（tray_icon::Icon 形式）
+    let tray_icon = {
+        let bytes = include_bytes!("../icon/icon.png");
+        let img = image::load_from_memory(bytes)
+            .expect("Failed to load tray icon")
+            .into_rgba8();
+        let (w, h) = img.dimensions();
+        trayicon::Icon::from_rgba(img.into_raw(), w, h)
+            .expect("Failed to create tray icon")
+    };
+
+    // トレイアイコンを初期化（Dioxus コンテキストに登録される）
+    trayicon::init_tray_icon(tray_menu_obj, Some(tray_icon));
+
+    // トレイメニュー項目のクリックハンドラ
+    dioxus::desktop::use_tray_menu_event_handler(move |event: &tray_menu::MenuEvent| {
+        let desktop = dioxus::desktop::window();
+        if event.id() == &id_open {
+            // Open: ウィンドウを表示して前面に出す
+            desktop.set_visible(true);
+            desktop.set_focus();
+        } else if event.id() == &id_hide {
+            // Hide: ウィンドウを非表示にする
+            desktop.set_visible(false);
+        } else if event.id() == &id_quit {
+            // Quit: アプリを完全終了する
+            // DAP サーバーが起動中なら停止
+            if let Ok(mut server) = dap_server().lock() {
+                server.stop();
+            }
+            std::process::exit(0);
+        }
+    });
     let mut project_name = use_signal(|| "myproject".to_string());
     let mut vscode_open_enabled = use_signal(|| true);
     let mut dap_port = use_signal(|| "50001".to_string());
@@ -124,8 +189,7 @@ fn App() -> Element {
 
     rsx! {
         document::Title { "{parameter::APP_NAME}" }
-        document::Link { rel: "stylesheet", href: MAIN_CSS }
-        document::Link { rel: "stylesheet", href: TAILWIND_CSS }
+        document::Stylesheet { href: MAIN_CSS }
 
         div {
             class: "app-shell",
@@ -557,6 +621,15 @@ fn App() -> Element {
 
 // ---- Helper functions ----
 
+fn load_window_icon() -> Icon {
+    let bytes = include_bytes!("../icon/icon.png");
+    let img = image::load_from_memory(bytes)
+        .expect("Failed to load icon")
+        .into_rgba8();
+    let (w, h) = img.dimensions();
+    Icon::from_rgba(img.into_raw(), w, h).expect("Failed to create icon")
+}
+
 fn escape_js_string(s: &str) -> String {
     s.replace('\\', "\\\\")
         .replace('"', "\\\"")
@@ -631,16 +704,6 @@ fn extract_message(line: &str) -> &str {
     } else {
         line
     }
-}
-
-#[allow(dead_code)]
-fn _start_log_auto_polling() {
-    thread::spawn(move || loop {
-        if let Ok(mut buffer) = display_buffer().lock() {
-            buffer.channel_recv();
-        }
-        thread::sleep(Duration::from_millis(300));
-    });
 }
 
 // ---- History persistence ----

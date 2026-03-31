@@ -16,38 +16,6 @@ const CREATE_NO_WINDOW: u32 = 0x08000000;
 #[cfg(target_os = "macos")]
 const ZSH_PROFILE: &str = ".zshrc";
 
-#[allow(dead_code)]
-#[derive(serde::Deserialize, serde::Serialize, PartialEq, Clone)]
-pub struct Project {
-    pub name: String,
-    path: String,
-}
-
-#[allow(dead_code)]
-impl Project {
-    pub fn get_path(&self) -> String {
-        self.joined_path().to_str().unwrap().to_string()
-    }
-
-    pub fn is_folder_exists(&self) -> bool {
-        std::path::Path::new(&self.get_path()).exists()
-    }
-
-    fn joined_path(&self) -> std::path::PathBuf {
-        std::path::Path::new(&self.path).join(&self.name)
-    }
-}
-
-#[allow(dead_code)]
-#[derive(serde::Deserialize, serde::Serialize)]
-pub struct NewProject {
-    pub name: String,
-    pub path: String,
-    pub vscode_open_enabled: bool,
-    pub history: Vec<Project>,
-    history_max: usize,
-}
-
 #[derive(serde::Deserialize, serde::Serialize)]
 pub struct ProbeRsDapServer {
     pub port: String,
@@ -71,18 +39,6 @@ impl Default for DapServerStatus {
     }
 }
 
-impl Default for NewProject {
-    fn default() -> Self {
-        Self {
-            name: "myproject".to_string(),
-            path: "".to_string(),
-            vscode_open_enabled: true,
-            history: Vec::with_capacity(10),
-            history_max: 10,
-        }
-    }
-}
-
 impl Default for ProbeRsDapServer {
     fn default() -> Self {
         Self {
@@ -91,27 +47,6 @@ impl Default for ProbeRsDapServer {
             handle: None,
             status: DapServerStatus::Stopped,
         }
-    }
-}
-
-#[allow(dead_code)]
-impl NewProject {
-    pub fn history_push(&mut self) -> bool {
-        let current = Project {
-            name: self.name.clone(),
-            path: self.path.clone(),
-        };
-
-        if self.history.contains(&current) {
-            return false;
-        }
-
-        if self.history.len() == self.history_max {
-            self.history.remove(0);
-        }
-
-        self.history.push(current);
-        true
     }
 }
 
@@ -313,15 +248,4 @@ fn docker_info_macos() -> Result<bool, String> {
         .output()
         .map_err(|e| format!("docker info failed: {}", e))?;
     Ok(output.status.success())
-}
-
-#[allow(dead_code)]
-pub fn are_apps_running(app_name: &str) -> bool {
-    let system = sysinfo::System::new_all();
-    let count = system
-        .processes()
-        .values()
-        .filter(|p| p.name() == app_name)
-        .count();
-    count >= 2
 }

@@ -1,12 +1,20 @@
 [application]
+name = "baker-link-env"
+out_dir = "dist"
+asset_dir = "assets"
 
-[web.app]
-# HTML title tag content
-title = "Baker link. Env"
+# ---- Bundle / Installer ----
+[bundle]
+identifier = "com.baker-link.env"
+publisher = "Baker Link Lab"
+icon = ["icon/icon.png", "icon/icon.ico"]
+copyright = "Copyright 2024 Baker Link Lab"
+category = "DeveloperTool"
+short_description = "Baker Link embedded Rust development environment"
+long_description = "A desktop application for managing embedded Rust projects with probe-rs DAP server, Docker integration, and VS Code project scaffolding."
 
-[web.resource]
-style = []
-script = []
+[bundle.windows]
+icon_path = "icon/icon.ico"
 
-[web.resource.dev]
-script = []
+[bundle.windows.webview_install_mode.EmbedBootstrapper]
+silent = true
