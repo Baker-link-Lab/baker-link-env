@@ -30,8 +30,6 @@ pub struct EvnApp {
     #[serde(skip)]
     docker_prompt_dismissed: bool,
     #[serde(skip)]
-    docker_check_inflight: bool,
-    #[serde(skip)]
     docker_check_rx: Option<std::sync::mpsc::Receiver<Result<bool, String>>>,
 }
 
@@ -46,7 +44,6 @@ impl Default for EvnApp {
             docker_status: DockerStatus::Unknown,
             last_docker_check: Instant::now(),
             docker_prompt_dismissed: false,
-            docker_check_inflight: false,
             docker_check_rx: None,
         }
     }
@@ -69,8 +66,7 @@ impl EvnApp {
         INIT.call_once(|| {
             if cmd::are_apps_running("baker-link-env") {
                 let message = "baker-link-env is already running".to_string();
-                self.set_error(message.clone());
-                self.log_error(message);
+                self.report_error(message);
             }
         });
     }
@@ -79,7 +75,6 @@ impl EvnApp {
         if let Some(rx) = &self.docker_check_rx {
             match rx.try_recv() {
                 Ok(result) => {
-                    self.docker_check_inflight = false;
                     self.docker_check_rx = None;
                     self.last_docker_check = Instant::now();
                     match result {
@@ -93,15 +88,10 @@ impl EvnApp {
                 }
                 Err(TryRecvError::Empty) => return,
                 Err(TryRecvError::Disconnected) => {
-                    self.docker_check_inflight = false;
                     self.docker_check_rx = None;
                     self.docker_status = DockerStatus::Unknown;
                 }
             }
-        }
-
-        if self.docker_check_inflight {
-            return;
         }
 
         if self.last_docker_check.elapsed() < DOCKER_POLL_INTERVAL {
@@ -110,7 +100,6 @@ impl EvnApp {
 
         let (tx, rx) = std::sync::mpsc::channel();
         self.docker_check_rx = Some(rx);
-        self.docker_check_inflight = true;
         self.last_docker_check = Instant::now();
         thread::spawn(move || {
             let result = cmd::is_docker_running();
@@ -205,11 +194,9 @@ impl EvnApp {
             });
     }
 
-    /// Show the error display panel
     fn show_error_panel(&mut self, ctx: &egui::Context) {
-        let should_show_error = self.last_error.is_some();
-        if should_show_error {
-            let error_text = self.last_error.clone().unwrap_or_default();
+        if let Some(error_text) = &self.last_error {
+            let error_text = error_text.clone();
             egui::TopBottomPanel::bottom("error_panel")
                 .frame(egui::Frame {
                     fill: uiutil::colors::ERROR,
@@ -231,17 +218,13 @@ impl EvnApp {
     }
 
     fn handle_history_action(&mut self, action: Option<HistoryAction>) {
-        let action = match action {
-            Some(action) => action,
-            None => return,
-        };
+        let Some(action) = action else { return };
 
         match action {
             HistoryAction::Open(path) => self.open_vscode_for_path(&path),
             HistoryAction::RemoveMissing { index, path } => {
                 let message = format!("Project not found: {}", path);
-                self.set_error(message.clone());
-                self.log_error(message);
+                self.report_error(message);
                 self.new_project.history.remove(index);
             }
         }
@@ -272,12 +255,15 @@ impl EvnApp {
                 self.docker_prompt_dismissed = true;
             }
             Err(e) => {
-                let message = format!("Rancher Desktop start failed: {}", e);
-                self.set_error(message.clone());
-                self.log_error(message);
+                self.report_error(format!("Rancher Desktop start failed: {}", e));
             }
         }
         self.last_docker_check = Instant::now() - Duration::from_secs(4);
+    }
+
+    fn report_error(&mut self, msg: String) {
+        self.last_error = Some(msg.clone());
+        self.display_buffer.log_error(msg);
     }
 
     fn set_error(&mut self, msg: String) {

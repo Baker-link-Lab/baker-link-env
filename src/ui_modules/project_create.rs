@@ -1,8 +1,7 @@
 use crate::cmd;
 use crate::logger::DisplayBuffer;
+use crate::parameter;
 use crate::uiutil;
-
-const TEMPLATE_URL: &str = "https://github.com/Baker-link-Lab/bakerlink_tutorial_template";
 
 /// UI for creating new projects
 pub struct ProjectCreatePanel;
@@ -74,6 +73,6 @@ impl ProjectCreatePanel {
             &mut new_project.vscode_open_enabled,
             "Open VS Code after creation",
         );
-        ui.hyperlink_to("View template repository", TEMPLATE_URL);
+        ui.hyperlink_to("View template repository", parameter::TEMPLATE_URL);
     }
 }

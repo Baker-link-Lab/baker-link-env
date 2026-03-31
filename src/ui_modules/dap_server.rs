@@ -26,13 +26,12 @@ impl DapServerPanel {
             );
             ui.add_space(8.0);
             let can_run = probe_rs_dap_server.status == cmd::DapServerStatus::Stopped;
-            let can_stop = !can_run;
 
             if ui
                 .add_enabled(can_run, uiutil::make_primary_button("Run"))
                 .clicked()
             {
-                match probe_rs_dap_server.start(display_buffer.tx.clone()) {
+                match probe_rs_dap_server.start(display_buffer.sender()) {
                     Ok(()) => display_buffer.log_info(format!(
                         "probe-rs DAP Server started on port {}",
                         probe_rs_dap_server.port
@@ -41,7 +40,7 @@ impl DapServerPanel {
                 }
             };
             if ui
-                .add_enabled(can_stop, uiutil::make_danger_button("Stop"))
+                .add_enabled(!can_run, uiutil::make_danger_button("Stop"))
                 .clicked()
             {
                 if probe_rs_dap_server.stop() {

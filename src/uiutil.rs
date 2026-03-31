@@ -25,6 +25,8 @@ pub mod colors {
     pub const STATUS_UNKNOWN: Color32 = Color32::from_rgb(0xe0, 0x9f, 0x3a);
 }
 
+const FONT_NAME: &str = "my_font";
+
 pub fn apply_theme(ctx: &eframe::CreationContext) {
     let mut visuals = egui::Visuals::light();
     visuals.panel_fill = colors::BG;
@@ -66,7 +68,7 @@ pub fn set_fonts(ctx: &eframe::CreationContext) {
     let mut fonts = egui::FontDefinitions::default();
 
     fonts.font_data.insert(
-        "my_font".to_owned(),
+        FONT_NAME.to_owned(),
         egui::FontData::from_static(include_bytes!("../fonts/NotoSansJP-Bold.otf")),
     );
 
@@ -74,23 +76,23 @@ pub fn set_fonts(ctx: &eframe::CreationContext) {
         .families
         .entry(egui::FontFamily::Proportional)
         .or_default()
-        .insert(0, "my_font".to_owned());
+        .insert(0, FONT_NAME.to_owned());
 
     fonts
         .families
         .entry(egui::FontFamily::Monospace)
         .or_default()
-        .push("my_font".to_owned());
+        .push(FONT_NAME.to_owned());
 
     ctx.egui_ctx.set_fonts(fonts);
 }
 
-pub fn card_frame() -> egui::Frame {
+fn card_frame_with_fill(fill: egui::Color32) -> egui::Frame {
     egui::Frame {
         inner_margin: 14.0.into(),
         outer_margin: 6.0.into(),
         rounding: 14.0.into(),
-        fill: colors::CARD,
+        fill,
         stroke: egui::Stroke::new(1.0, colors::BORDER),
         shadow: egui::Shadow {
             offset: [0.0, 8.0].into(),
@@ -102,21 +104,12 @@ pub fn card_frame() -> egui::Frame {
     }
 }
 
+pub fn card_frame() -> egui::Frame {
+    card_frame_with_fill(colors::CARD)
+}
+
 pub fn card_frame_alt() -> egui::Frame {
-    egui::Frame {
-        inner_margin: 14.0.into(),
-        outer_margin: 6.0.into(),
-        rounding: 14.0.into(),
-        fill: colors::CARD_ALT,
-        stroke: egui::Stroke::new(1.0, colors::BORDER),
-        shadow: egui::Shadow {
-            offset: [0.0, 8.0].into(),
-            blur: 24.0,
-            spread: 0.0,
-            color: egui::Color32::from_black_alpha(60),
-        },
-        ..Default::default()
-    }
+    card_frame_with_fill(colors::CARD_ALT)
 }
 
 pub fn header_frame() -> egui::Frame {
@@ -129,24 +122,26 @@ pub fn header_frame() -> egui::Frame {
     }
 }
 
-pub fn make_primary_button(text: &str) -> egui::Button<'_> {
+fn make_colored_button<'a>(
+    text: &'a str,
+    fill: egui::Color32,
+    stroke_color: egui::Color32,
+) -> egui::Button<'a> {
     egui::Button::new(
         egui::RichText::new(text)
             .color(colors::TEXT_ON_ACCENT)
             .size(12.0),
     )
-    .fill(colors::ACCENT)
-    .stroke(egui::Stroke::new(1.0, colors::ACCENT_DARK))
+    .fill(fill)
+    .stroke(egui::Stroke::new(1.0, stroke_color))
+}
+
+pub fn make_primary_button(text: &str) -> egui::Button<'_> {
+    make_colored_button(text, colors::ACCENT, colors::ACCENT_DARK)
 }
 
 pub fn make_danger_button(text: &str) -> egui::Button<'_> {
-    egui::Button::new(
-        egui::RichText::new(text)
-            .color(colors::TEXT_ON_ACCENT)
-            .size(12.0),
-    )
-    .fill(colors::ERROR)
-    .stroke(egui::Stroke::new(1.0, colors::ACCENT_DARK))
+    make_colored_button(text, colors::ERROR, colors::ACCENT_DARK)
 }
 
 pub fn make_chip_button(text: &str) -> egui::Button<'_> {
@@ -178,4 +173,18 @@ pub fn make_section_subtitle(text: &str) -> egui::RichText {
 pub fn status_dot(ui: &mut egui::Ui, color: egui::Color32) {
     let (rect, _resp) = ui.allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());
     ui.painter().circle_filled(rect.center(), 4.0, color);
+}
+
+pub fn powered_by_egui_and_eframe(ui: &mut egui::Ui) {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 0.0;
+        ui.label("Powered by ");
+        ui.hyperlink_to("egui", "https://github.com/emilk/egui");
+        ui.label(" and ");
+        ui.hyperlink_to(
+            "eframe",
+            "https://github.com/emilk/egui/tree/master/crates/eframe",
+        );
+        ui.label(".");
+    });
 }

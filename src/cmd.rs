@@ -184,6 +184,7 @@ impl ProbeRsDapServer {
             shutdown.cancel();
         }
         if let Some(handle) = self.handle.take() {
+            // Detach the join to avoid blocking the UI thread while the server shuts down.
             thread::spawn(move || {
                 let _ = handle.join();
             });
@@ -248,16 +249,16 @@ fn open_vscode_macos(path: &str) -> Result<std::process::Output, std::io::Error>
 
 #[cfg(target_os = "windows")]
 fn start_rd_windows() -> std::result::Result<(), String> {
-    let path = std::env!("PATH");
+    let path = std::env::var("PATH").unwrap_or_default();
     match std::process::Command::new("rdctl")
         .arg("start")
         .arg("--application.start-in-background")
-        .env("PATH", path)
+        .env("PATH", &path)
         .creation_flags(CREATE_NO_WINDOW)
         .spawn()
     {
         Ok(_) => Ok(()),
-        Err(e) => Err(format!("Error: {}, $PATH: {}", e, path)),
+        Err(e) => Err(format!("Error: {}", e)),
     }
 }
 
@@ -281,7 +282,7 @@ fn start_rd_macos() -> std::result::Result<(), String> {
 
 #[cfg(target_os = "windows")]
 fn docker_info_windows() -> Result<bool, String> {
-    let path = std::env!("PATH");
+    let path = std::env::var("PATH").unwrap_or_default();
     let output = Command::new("docker")
         .arg("info")
         .arg("--format")
@@ -304,8 +305,7 @@ fn docker_info_macos() -> Result<bool, String> {
 }
 
 pub fn are_apps_running(app_name: &str) -> bool {
-    let mut system = sysinfo::System::new_all();
-    system.refresh_processes();
+    let system = sysinfo::System::new_all();
     let count = system
         .processes()
         .values()
