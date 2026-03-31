@@ -39,3 +39,4 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: dist/*
+          body_path: .github/RELEASE_TEMPLATE.md
