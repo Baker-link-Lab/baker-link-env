@@ -12,8 +12,14 @@ use log::LevelFilter;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
-const MAIN_CSS: Asset = asset!("/assets/main.css");
-const LOGO_IMG: Asset = asset!("/assets/baker-link-logo.png");
+const INLINE_CSS: &str = include_str!("../assets/main.css");
+const LOGO_PNG_BYTES: &[u8] = include_bytes!("../assets/baker-link-logo.png");
+
+use base64::Engine as _;
+fn logo_data_uri() -> String {
+    let b64 = base64::engine::general_purpose::STANDARD.encode(LOGO_PNG_BYTES);
+    format!("data:image/png;base64,{b64}")
+}
 const HISTORY_MAX: usize = 10;
 
 static DISPLAY_BUFFER: OnceLock<Mutex<logger::DisplayBuffer>> = OnceLock::new();
@@ -116,6 +122,10 @@ fn App() -> Element {
             if let Ok(mut server) = dap_server().lock() {
                 server.stop();
             }
+            // トレイアイコンを明示的に削除（drop しないとシェルに残る）
+            if let Some(tray) = trayicon::use_tray_icon() {
+                drop(tray);
+            }
             std::process::exit(0);
         }
     });
@@ -189,7 +199,7 @@ fn App() -> Element {
 
     rsx! {
         document::Title { "{parameter::APP_NAME}" }
-        document::Stylesheet { href: MAIN_CSS }
+        document::Style { {INLINE_CSS} }
 
         div {
             class: "app-shell",
@@ -606,7 +616,7 @@ fn App() -> Element {
                         class: "splash-content",
                         img {
                             class: "splash-logo",
-                            src: LOGO_IMG,
+                            src: "{logo_data_uri()}",
                             alt: "Baker Link",
                         }
                         div { class: "splash-shimmer" }

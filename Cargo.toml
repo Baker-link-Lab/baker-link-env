@@ -16,6 +16,7 @@ env_logger = "0.11.3"
 rfd = "0.14.1"
 cargo-generate = "0.23"
 anyhow = "1.0.86"
+base64 = "0.22"
 chrono = "0.4.38"
 open = "5.3.0"
 image = { version = "0.25", default-features = false, features = ["png"] }
