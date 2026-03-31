@@ -49,5 +49,14 @@ impl DapServerPanel {
                 };
             }
         });
+
+        ui.add_space(2.0);
+        ui.label(
+            egui::RichText::new(
+                "Docker path mapping: set \"pathMappings\" in launch.json \
+                 (remoteRoot / localRoot)",
+            )
+            .small(),
+        );
     }
 }
