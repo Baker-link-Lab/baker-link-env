@@ -1,0 +1,12 @@
+[application]
+
+[web.app]
+# HTML title tag content
+title = "Baker link. Env"
+
+[web.resource]
+style = []
+script = []
+
+[web.resource.dev]
+script = []

@@ -16,12 +16,14 @@ const CREATE_NO_WINDOW: u32 = 0x08000000;
 #[cfg(target_os = "macos")]
 const ZSH_PROFILE: &str = ".zshrc";
 
+#[allow(dead_code)]
 #[derive(serde::Deserialize, serde::Serialize, PartialEq, Clone)]
 pub struct Project {
     pub name: String,
     path: String,
 }
 
+#[allow(dead_code)]
 impl Project {
     pub fn get_path(&self) -> String {
         self.joined_path().to_str().unwrap().to_string()
@@ -36,6 +38,7 @@ impl Project {
     }
 }
 
+#[allow(dead_code)]
 #[derive(serde::Deserialize, serde::Serialize)]
 pub struct NewProject {
     pub name: String,
@@ -91,6 +94,7 @@ impl Default for ProbeRsDapServer {
     }
 }
 
+#[allow(dead_code)]
 impl NewProject {
     pub fn history_push(&mut self) -> bool {
         let current = Project {
@@ -206,6 +210,7 @@ fn spawn_dap_server_thread(
     log_tx: std::sync::mpsc::Sender<String>,
 ) -> std::thread::JoinHandle<()> {
     thread::spawn(move || {
+        let shutdown_probe = shutdown_task.clone();
         let runtime = match Builder::new_current_thread().enable_all().build() {
             Ok(runtime) => runtime,
             Err(error) => {
@@ -224,7 +229,11 @@ fn spawn_dap_server_thread(
         ));
 
         if let Err(error) = result {
-            let _ = log_tx.send(format!("DAP server stopped: {error}"));
+            if shutdown_probe.is_cancelled() {
+                let _ = log_tx.send("DAP server shutdown requested".to_string());
+            } else {
+                let _ = log_tx.send(format!("[ERROR] DAP server stopped: {error}"));
+            }
         }
     })
 }
@@ -304,6 +313,7 @@ fn docker_info_macos() -> Result<bool, String> {
     Ok(output.status.success())
 }
 
+#[allow(dead_code)]
 pub fn are_apps_running(app_name: &str) -> bool {
     let system = sysinfo::System::new_all();
     let count = system

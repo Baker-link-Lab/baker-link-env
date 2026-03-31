@@ -8,14 +8,9 @@ build = "build.rs"
 winres = "0.1"
 
 [dependencies]
-egui = "0.28"
-eframe = { version = "0.28", default-features = false, features = [
-    "accesskit",     # Make egui compatible with screen readers. NOTE: adds a lot of dependencies.
-    "default_fonts", # Embed the default egui fonts.
-    "glow",          # Use the glow rendering backend. Alternative: "wgpu".
-    "persistence",   # Enable restoring app state when restarting the app.
-] }
+dioxus = { version = "0.7.1" }
 log = "0.4"
+futures-channel = { version = "0.3", features = ["std"] }
 
 serde = { version = "1", features = ["derive"] }
 env_logger = "0.11.3"
@@ -26,9 +21,16 @@ chrono = "0.4.38"
 sysinfo = "0.30.13"
 open = "5.3.0"
 probe-rs-tools = { path = "external/probe-rs/probe-rs-tools" }
-tokio = { version = "1", features = ["rt", "time"] }
+tokio = { version = "1", features = ["rt", "time", "sync"] }
 tokio-util = "0.7"
 time = "0.3"
+
+[features]
+default = ["desktop"]
+web = ["dioxus/web"]
+desktop = ["dioxus/desktop"]
+mobile = ["dioxus/mobile"]
+server = ["dioxus/server"]
 
 
 [package.metadata.packager]
