@@ -30,11 +30,10 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Install cargo-binstall
-        uses: cargo-bins/cargo-binstall@v1
-
       - name: Install Dioxus CLI
-        run: cargo binstall dioxus-cli --no-confirm --locked
+        uses: taiki-e/install-action@v2
+        with:
+          tool: dioxus-cli
 
       - name: Bundle
         run: dx bundle --release --package-types ${{ matrix.package-type }}
