@@ -16,14 +16,6 @@ pub fn logo_data_uri() -> String {
     format!("data:image/png;base64,{b64}")
 }
 
-pub fn escape_js_string(s: &str) -> String {
-    s.replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', "\\n")
-        .replace('\r', "\\r")
-        .replace('\t', "\\t")
-}
-
 pub fn docker_dot_class(status: &str) -> &'static str {
     if status.contains("On") {
         "status-dot status-dot-green"
