@@ -248,11 +248,19 @@ fn docker_info_windows() -> Result<bool, String> {
 
 #[cfg(target_os = "macos")]
 fn docker_info_macos() -> Result<bool, String> {
+    let home_dir = std::env::var("HOME").unwrap_or_default();
+    let current_path = std::env::var("PATH").unwrap_or_default();
+    let full_path = format!(
+        "{}/.rd/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:{}",
+        home_dir, current_path
+    );
     let output = Command::new("docker")
         .arg("info")
         .arg("--format")
         .arg("{{.ServerVersion}}")
+        .env("PATH", full_path)
         .output()
         .map_err(|e| format!("docker info failed: {}", e))?;
-    Ok(output.status.success())
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    Ok(output.status.success() && !stdout.trim().is_empty())
 }
