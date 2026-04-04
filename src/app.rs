@@ -388,8 +388,9 @@ pub fn App() -> Element {
                             class: "btn-chip",
                             onclick: move |_| {
                                 let text = logs.read().join("\n");
-                                let escaped = helpers::escape_js_string(&text);
-                                document::eval(&format!("navigator.clipboard.writeText(\"{}\")", escaped));
+                                if let Ok(mut cb) = arboard::Clipboard::new() {
+                                    let _ = cb.set_text(text);
+                                }
                             },
                             "Copy"
                         }
