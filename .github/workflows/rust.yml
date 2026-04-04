@@ -18,7 +18,7 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            package-type: nsis
+            package-type: msi
           - os: macos-latest
             package-type: dmg
 
