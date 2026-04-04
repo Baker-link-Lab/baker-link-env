@@ -22,7 +22,7 @@
 
 **Baker link. Env** is a desktop application that automates the setup of an embedded Rust development environment. It bridges VS Code Dev Containers (running inside Docker) with a probe-rs DAP server running on the host, allowing you to write, build, and debug embedded Rust code entirely within a container — without touching your host Rust toolchain.
 
-![Home screen](image/home_win.png)
+![Home screen](image/app_home.png)
 
 ---
 
