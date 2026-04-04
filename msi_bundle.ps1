@@ -1,0 +1,1 @@
+dx bundle --package-types msi -r
