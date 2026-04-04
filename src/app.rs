@@ -290,8 +290,7 @@ pub fn App() -> Element {
                                                             h.push(settings::HistoryEntry {
                                                                 name: project_name.read().clone(),
                                                                 path: joined_str.clone(),
-                                                            }
-                                                            }
+                                                            });
                                                             settings::save_history(&h);
                                                             history.set(h);
                                                         }
