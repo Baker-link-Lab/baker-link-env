@@ -28,9 +28,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+          fetch-depth: 0
+
+      - name: Install cargo-binstall
+        uses: cargo-bins/cargo-binstall@v1
 
       - name: Install Dioxus CLI
-        run: cargo install dioxus-cli --locked
+        run: cargo binstall dioxus-cli --no-confirm --locked
 
       - name: Bundle
         run: dx bundle --release --package-types ${{ matrix.package-type }}
