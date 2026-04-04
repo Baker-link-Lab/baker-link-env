@@ -14,7 +14,7 @@ env:
 jobs:
   build:
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         include:
           - os: windows-latest
@@ -30,10 +30,20 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
+      - name: Install macOS system dependencies
+        if: runner.os == 'macOS'
+        run: brew install pkg-config libgit2
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+
       - name: Install Dioxus CLI
         uses: taiki-e/install-action@v2
         with:
           tool: dioxus-cli
+
+      - name: Build
+        run: cargo build --release
 
       - name: Bundle
         run: dx bundle --release --package-types ${{ matrix.package-type }}
