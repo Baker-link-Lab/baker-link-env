@@ -80,10 +80,8 @@ html, body {
     display: flex;
     align-items: center;
     justify-content: center;
-    color: var(--bkl-orange);
-    font-weight: 900;
-    font-size: 12px;
     flex-shrink: 0;
+    overflow: hidden;
 }
 
 .brand-icon-button {
