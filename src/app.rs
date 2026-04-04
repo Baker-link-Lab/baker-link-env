@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 use futures_util::StreamExt;
 use std::time::Duration;
 
-use crate::{cmd, helpers, parameter, settings, INLINE_CSS};
+use crate::{cmd, helpers, logger, parameter, settings};
 
 /// Actions dispatched from UI buttons into a single coroutine.
 enum AppAction {
@@ -16,6 +16,8 @@ enum AppAction {
 pub fn App() -> Element {
     // State signals
     let mut project_name = use_signal(|| "myproject".to_string());
+    let mut template_ref_is_tag = use_signal(|| false); // false = branch, true = tag
+    let mut template_ref_value = use_signal(|| String::new());
     let mut vscode_open_enabled = use_signal(|| true);
     let mut dap_port = use_signal(|| "50001".to_string());
     let mut dap_running = use_signal(|| false);
@@ -161,7 +163,7 @@ pub fn App() -> Element {
 
     rsx! {
         document::Title { "{parameter::APP_NAME}" }
-        document::Style { {INLINE_CSS} }
+        document::Link { rel: "stylesheet", href: asset!("/assets/main.css") }
 
         div { class: "app-shell",
 
@@ -265,7 +267,19 @@ pub fn App() -> Element {
                                                 .join(project_name.read().as_str());
                                             let joined_str = joined.to_string_lossy().to_string();
                                             if !joined.exists() {
-                                                match cmd::generate_project(project_name.read().as_str(), &path_str) {
+                                                let ref_val = template_ref_value.read().trim().to_string();
+                                                let ref_opt = if ref_val.is_empty() { None } else { Some(ref_val) };
+                                                let (branch, tag) = if *template_ref_is_tag.read() {
+                                                    (None, ref_opt)
+                                                } else {
+                                                    (ref_opt, None)
+                                                };
+                                                match cmd::generate_project(
+                                                    project_name.read().as_str(),
+                                                    &path_str,
+                                                    branch,
+                                                    tag,
+                                                ) {
                                                     Ok(_) => {
                                                         crate::log_info(format!("Project {} generated", joined_str));
                                                         let mut h = history.read().clone();
@@ -276,7 +290,8 @@ pub fn App() -> Element {
                                                             h.push(settings::HistoryEntry {
                                                                 name: project_name.read().clone(),
                                                                 path: joined_str.clone(),
-                                                            });
+                                                            }
+                                                            }
                                                             settings::save_history(&h);
                                                             history.set(h);
                                                         }
@@ -300,6 +315,28 @@ pub fn App() -> Element {
                                         }
                                     },
                                     "Create"
+                                }
+                            }
+
+                            div { class: "input-row",
+                                label { class: "input-label", "Version" }
+                                div { class: "ref-type-toggle",
+                                    button {
+                                        class: if !*template_ref_is_tag.read() { "btn-chip btn-chip-active" } else { "btn-chip" },
+                                        onclick: move |_| template_ref_is_tag.set(false),
+                                        "Branch"
+                                    }
+                                    button {
+                                        class: if *template_ref_is_tag.read() { "btn-chip btn-chip-active" } else { "btn-chip" },
+                                        onclick: move |_| template_ref_is_tag.set(true),
+                                        "Tag"
+                                    }
+                                }
+                                input {
+                                    class: "input",
+                                    placeholder: if *template_ref_is_tag.read() { "e.g. v1.0.0 (blank = latest)" } else { "e.g. main (blank = HEAD)" },
+                                    value: "{template_ref_value}",
+                                    oninput: move |ev| template_ref_value.set(ev.value()),
                                 }
                             }
 
@@ -399,12 +436,12 @@ pub fn App() -> Element {
                         for (idx , line) in logs.read().iter().enumerate() {
                             div {
                                 key: "{idx}",
-                                class: "log-line {helpers::log_level_class(line)}",
-                                span { class: "log-timestamp", "{helpers::extract_timestamp(line)}" }
-                                span { class: "log-badge {helpers::log_badge_class(line)}",
-                                    "{helpers::extract_level(line)}"
+                                class: "log-line {logger::log_level_class(line)}",
+                                span { class: "log-timestamp", "{logger::extract_timestamp(line)}" }
+                                span { class: "log-badge {logger::log_badge_class(line)}",
+                                    "{logger::extract_level(line)}"
                                 }
-                                span { class: "log-message", "{helpers::extract_message(line)}" }
+                                span { class: "log-message", "{logger::extract_message(line)}" }
                             }
                         }
                     }

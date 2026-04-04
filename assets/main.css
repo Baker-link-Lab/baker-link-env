@@ -386,6 +386,16 @@ html, body {
     transform: translateY(-1px);
 }
 
+.btn-chip-active {
+    color: var(--bkl-orange);
+    border-color: var(--bkl-orange);
+}
+
+.ref-type-toggle {
+    display: flex;
+    gap: 4px;
+}
+
 .btn-primary:disabled, .btn-danger:disabled, .btn-chip:disabled {
     opacity: 0.3;
     cursor: not-allowed;

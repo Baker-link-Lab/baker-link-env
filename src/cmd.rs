@@ -72,13 +72,20 @@ pub fn start_rd() -> std::result::Result<(), String> {
     }
 }
 
-pub fn generate_project(name: &str, path: &str) -> anyhow::Result<std::path::PathBuf> {
+pub fn generate_project(
+    name: &str,
+    path: &str,
+    branch: Option<String>,
+    tag: Option<String>,
+) -> anyhow::Result<std::path::PathBuf> {
     std::env::set_current_dir(path).unwrap();
     let generate_args = cargo_generate::GenerateArgs {
         name: Some(name.to_string()),
         vcs: Some(cargo_generate::Vcs::Git),
         template_path: cargo_generate::TemplatePath {
             git: Some(parameter::TUTORIAL_TEMPLATE.to_string()),
+            branch,
+            tag,
             ..cargo_generate::TemplatePath::default()
         },
         ..cargo_generate::GenerateArgs::default()
