@@ -1,4 +1,4 @@
-name: Rust
+name: Build & Release
 
 permissions:
   contents: write
@@ -16,29 +16,26 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        job:
-          - { os: "windows-latest", path: "dist/*.exe" }
-          - { os: "macos-latest", path: "dist/*.dmg" }
+        include:
+          - os: windows-latest
+            package-type: msi
+          - os: macos-latest
+            package-type: dmg
 
-    runs-on: ${{ matrix.job.os }}
+    runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v4
-      - name: Install cargo-packager
-        run: cargo install cargo-packager --locked
+        with:
+          submodules: recursive
 
-      - name: Build (Windows)
-        run: cargo packager --release --formats nsis
-        if: matrix.job.os == 'windows-latest'
+      - name: Install Dioxus CLI
+        run: cargo install dioxus-cli --locked
 
-      - name: Build (macOS)
-        run: cargo packager --release --formats dmg
-        if: matrix.job.os == 'macos-latest'
+      - name: Bundle
+        run: dx bundle --release --package-types ${{ matrix.package-type }}
 
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
-          files: |
-            ${{ matrix.job.path }}
-          # GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        # env:
+          files: dist/*

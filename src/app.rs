@@ -1,345 +1,545 @@
-use crate::cmd;
-use crate::logger::DisplayBuffer;
-use crate::parameter;
-use crate::ui_modules::{DapServerPanel, LoggerPanel, ProjectCreatePanel};
-use crate::uiutil;
-use std::sync::mpsc::TryRecvError;
-use std::thread;
-use std::time::{Duration, Instant};
+use dioxus::prelude::*;
+use futures_util::StreamExt;
+use std::time::Duration;
 
-const HELP_URL: &str = "https://github.com/Baker-link-Lab/baker-link-env/blob/main/README.md";
-const DOCKER_POLL_INTERVAL: Duration = Duration::from_secs(3);
+use crate::{cmd, helpers, logger, parameter, settings};
 
-static INIT: std::sync::Once = std::sync::Once::new();
-
-/// Main application state
-#[derive(serde::Deserialize, serde::Serialize)]
-#[serde(default)]
-pub struct EvnApp {
-    new_project: cmd::NewProject,
-    probe_rs_dap_server: cmd::ProbeRsDapServer,
-    #[serde(skip)]
-    display_buffer: DisplayBuffer,
-    info: bool,
-    #[serde(skip)]
-    last_error: Option<String>,
-    #[serde(skip)]
-    docker_status: DockerStatus,
-    #[serde(skip)]
-    last_docker_check: Instant,
-    #[serde(skip)]
-    docker_prompt_dismissed: bool,
-    #[serde(skip)]
-    docker_check_inflight: bool,
-    #[serde(skip)]
-    docker_check_rx: Option<std::sync::mpsc::Receiver<Result<bool, String>>>,
+/// Actions dispatched from UI buttons into a single coroutine.
+enum AppAction {
+    StartDap,
+    StopDap,
+    StartDocker,
+    OpenProject(String),
 }
 
-impl Default for EvnApp {
-    fn default() -> Self {
-        Self {
-            new_project: Default::default(),
-            probe_rs_dap_server: Default::default(),
-            display_buffer: DisplayBuffer::new(),
-            info: true,
-            last_error: None,
-            docker_status: DockerStatus::Unknown,
-            last_docker_check: Instant::now(),
-            docker_prompt_dismissed: false,
-            docker_check_inflight: false,
-            docker_check_rx: None,
-        }
-    }
-}
+#[component]
+pub fn App() -> Element {
+    // State signals
+    let mut project_name = use_signal(|| "myproject".to_string());
+    let mut template_ref_is_tag = use_signal(|| false); // false = branch, true = tag
+    let mut template_ref_value = use_signal(|| String::new());
+    let mut vscode_open_enabled = use_signal(|| true);
+    let mut dap_port = use_signal(|| "50001".to_string());
+    let mut dap_running = use_signal(|| false);
+    let mut logs = use_signal(Vec::<String>::new);
+    let mut docker_status = use_signal(|| "Docker: ?".to_string());
+    let mut last_error = use_signal(|| Option::<String>::None);
+    let mut docker_prompt_dismissed = use_signal(|| false);
+    let mut history = use_signal(settings::load_history);
+    let mut show_history = use_signal(|| false);
+    let mut show_splash = use_signal(settings::should_show_splash);
+    let mut show_reset_confirm = use_signal(|| false);
 
-impl EvnApp {
-    /// Create a new app instance from creation context
-    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        uiutil::set_fonts(cc);
-        uiutil::apply_theme(cc);
-
-        if let Some(storage) = cc.storage {
-            return eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
-        }
-        Default::default()
-    }
-
-    /// Initialize the application (run once)
-    fn initialize(&mut self) {
-        INIT.call_once(|| {
-            if cmd::are_apps_running("baker-link-env") {
-                let message = "baker-link-env is already running".to_string();
-                self.set_error(message.clone());
-                self.log_error(message);
-            }
-        });
-    }
-
-    fn update_docker_status(&mut self) {
-        if let Some(rx) = &self.docker_check_rx {
-            match rx.try_recv() {
-                Ok(result) => {
-                    self.docker_check_inflight = false;
-                    self.docker_check_rx = None;
-                    self.last_docker_check = Instant::now();
-                    match result {
-                        Ok(true) => {
-                            self.docker_status = DockerStatus::Running;
-                            self.docker_prompt_dismissed = false;
-                        }
-                        Ok(false) => self.docker_status = DockerStatus::Stopped,
-                        Err(_) => self.docker_status = DockerStatus::Unknown,
-                    }
-                }
-                Err(TryRecvError::Empty) => return,
-                Err(TryRecvError::Disconnected) => {
-                    self.docker_check_inflight = false;
-                    self.docker_check_rx = None;
-                    self.docker_status = DockerStatus::Unknown;
-                }
-            }
-        }
-
-        if self.docker_check_inflight {
-            return;
-        }
-
-        if self.last_docker_check.elapsed() < DOCKER_POLL_INTERVAL {
-            return;
-        }
-
-        let (tx, rx) = std::sync::mpsc::channel();
-        self.docker_check_rx = Some(rx);
-        self.docker_check_inflight = true;
-        self.last_docker_check = Instant::now();
-        thread::spawn(move || {
-            let result = cmd::is_docker_running();
-            let _ = tx.send(result);
-        });
-    }
-
-    fn show_docker_prompt(&mut self, ctx: &egui::Context) {
-        if self.docker_status != DockerStatus::Stopped || self.docker_prompt_dismissed {
-            return;
-        }
-
-        egui::Window::new("Rancher Desktop")
-            .collapsible(false)
-            .resizable(false)
-            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-            .show(ctx, |ui| {
-                ui.label("Docker is not running.");
-                ui.label("Start Rancher Desktop now?");
-                ui.add_space(8.0);
-                ui.horizontal(|ui| {
-                    if ui.add(uiutil::make_primary_button("Start")).clicked() {
-                        self.start_rancher_desktop();
-                    }
-                    if ui.add(uiutil::make_chip_button("Not now")).clicked() {
-                        self.docker_prompt_dismissed = true;
-                    }
-                });
-            });
-    }
-
-    /// Show the top panel with help and history menu
-    fn show_top_panel(&mut self, ctx: &egui::Context) {
-        egui::TopBottomPanel::top("top_panel")
-            .frame(uiutil::header_frame())
-            .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.vertical(|ui| {
-                        ui.label(uiutil::make_primary_heading(parameter::APP_NAME));
-                        ui.label(uiutil::make_section_subtitle(
-                            &parameter::build_version_label(),
-                        ));
-                    });
-
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let (status_label, status_color) = match self.docker_status {
-                            DockerStatus::Running => ("Docker: On", uiutil::colors::STATUS_ON),
-                            DockerStatus::Stopped => ("Docker: Off", uiutil::colors::STATUS_OFF),
-                            DockerStatus::Unknown => ("Docker: ?", uiutil::colors::STATUS_UNKNOWN),
+    // Action dispatcher coroutine — single place for all side-effects
+    let actions = use_coroutine(move |mut rx: UnboundedReceiver<AppAction>| async move {
+        while let Some(action) = rx.next().await {
+            match action {
+                AppAction::StartDap => {
+                    if let Ok(mut server) = crate::dap_server().lock() {
+                        let tx = {
+                            if let Ok(buffer) = crate::display_buffer().lock() {
+                                buffer.sender()
+                            } else {
+                                continue;
+                            }
                         };
-                        ui.horizontal(|ui| {
-                            ui.label(status_label);
-                            uiutil::status_dot(ui, status_color);
+                        match server.start(tx) {
+                            Ok(()) => {
+                                dap_running.set(true);
+                                crate::log_info(format!(
+                                    "probe-rs DAP Server started on port {}",
+                                    server.port
+                                ));
+                            }
+                            Err(e) => {
+                                crate::log_error(e.clone());
+                                last_error.set(Some(e));
+                            }
+                        }
+                    }
+                }
+                AppAction::StopDap => {
+                    if let Ok(mut server) = crate::dap_server().lock() {
+                        if server.stop() {
+                            dap_running.set(false);
+                            crate::log_info("probe-rs DAP Server stopped");
+                        }
+                    }
+                }
+                AppAction::StartDocker => {
+                    let (tx, rx) = tokio::sync::oneshot::channel();
+                    std::thread::spawn(move || {
+                        let _ = tx.send(cmd::start_rd());
+                    });
+                    match rx.await {
+                        Ok(Ok(_)) => crate::log_info("Rancher Desktop started"),
+                        Ok(Err(e)) => {
+                            crate::log_error(format!("Rancher Desktop start failed: {}", e));
+                            last_error.set(Some(e));
+                        }
+                        Err(_) => {
+                            crate::log_error("Rancher Desktop start: channel closed");
+                        }
+                    }
+                }
+                AppAction::OpenProject(path) => {
+                    if std::path::Path::new(&path).exists() {
+                        // Start Rancher Desktop in background (non-blocking)
+                        std::thread::spawn(|| {
+                            let _ = cmd::start_rd();
                         });
-                        ui.add_space(8.0);
-
-                        if self.docker_status == DockerStatus::Stopped
-                            && ui.add(uiutil::make_primary_button("Start RD")).clicked()
-                        {
-                            self.start_rancher_desktop();
+                        crate::log_info(format!("Visual Studio Code opened: {}", path));
+                        let path_clone = path.clone();
+                        let (tx, rx) = tokio::sync::oneshot::channel();
+                        std::thread::spawn(move || {
+                            let _ = tx.send(cmd::open_vscode(&path_clone));
+                        });
+                        if let Ok(Err(e)) = rx.await {
+                            crate::log_error(format!("Visual Studio Code failed to open: {}", e));
                         }
-
-                        if ui.add(uiutil::make_chip_button("Help")).clicked() {
-                            let _ = open::that(HELP_URL);
+                    } else {
+                        crate::log_error(format!("Project not found: {}", path));
+                        last_error.set(Some(format!("Project not found: {}", path)));
+                        let mut hist = history.read().clone();
+                        if let Some(pos) = hist.iter().position(|e| e.path == path) {
+                            hist.remove(pos);
+                            settings::save_history(&hist);
+                            history.set(hist);
                         }
+                    }
+                }
+            }
+        }
+    });
 
-                        let mut history_action: Option<HistoryAction> = None;
-                        ui.menu_button("History", |ui| {
-                            for (i, pj) in self.new_project.history.iter().enumerate() {
-                                let path = pj.get_path();
-                                if ui.button(&path).clicked() {
-                                    if pj.is_folder_exists() {
-                                        history_action = Some(HistoryAction::Open(path));
-                                    } else {
-                                        history_action =
-                                            Some(HistoryAction::RemoveMissing { index: i, path });
+    // Auto-dismiss splash after 3 seconds (re-triggers on reset)
+    use_effect(move || {
+        if *show_splash.read() {
+            settings::mark_splash_shown();
+            spawn(async move {
+                tokio::time::sleep(Duration::from_millis(3000)).await;
+                show_splash.set(false);
+            });
+        }
+    });
+
+    // Poll logs every 300ms
+    use_future(move || async move {
+        loop {
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            if let Ok(mut buffer) = crate::display_buffer().lock() {
+                buffer.channel_recv();
+                let latest = buffer.buffer.clone();
+                if latest != *logs.read() {
+                    logs.set(latest);
+                }
+            }
+        }
+    });
+
+    // Docker status auto-polling every 5 seconds
+    use_future(move || async move {
+        loop {
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            std::thread::spawn(move || {
+                let _ = tx.send(cmd::is_docker_running());
+            });
+            if let Ok(result) = rx.await {
+                let new_status = match result {
+                    Ok(true) => "Docker: On".to_string(),
+                    Ok(false) => "Docker: Off".to_string(),
+                    Err(_) => "Docker: ?".to_string(),
+                };
+                if *docker_status.read() != new_status {
+                    if new_status.contains("On") {
+                        docker_prompt_dismissed.set(false);
+                    }
+                    docker_status.set(new_status);
+                }
+            }
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        }
+    });
+
+    rsx! {
+        document::Title { "{parameter::APP_NAME}" }
+        document::Link { rel: "stylesheet", href: asset!("/assets/main.css") }
+
+        div { class: "app-shell",
+
+            // ===== TOP BAR =====
+            div { class: "top-bar",
+
+                div { class: "top-bar-left",
+                    button {
+                        class: "brand-icon brand-icon-button",
+                        title: "Reset all settings",
+                        onclick: move |_| show_reset_confirm.set(true),
+                        "B"
+                    }
+                    span { class: "brand-name", "{parameter::APP_NAME}" }
+                    span { class: "brand-version", "{parameter::build_version_label()}" }
+
+                    div { class: "docker-status",
+                        span { class: "{helpers::docker_dot_class(&docker_status.read())}" }
+                        span { class: "docker-label", "{docker_status}" }
+                    }
+                }
+
+                div { class: "top-bar-spacer" }
+
+                div { class: "top-bar-right",
+
+                    // History dropdown
+                    div { class: "dropdown-container",
+                        button {
+                            class: "btn-chip",
+                            onclick: move |_| {
+                                let current = *show_history.read();
+                                show_history.set(!current);
+                            },
+                            "History"
+                        }
+                        if *show_history.read() {
+                            div { class: "dropdown-menu",
+                                if history.read().is_empty() {
+                                    div { class: "dropdown-empty", "No history yet" }
+                                }
+                                for entry in history.read().iter() {
+                                    {
+                                        let entry_path = entry.path.clone();
+                                        let entry_name = entry.name.clone();
+                                        rsx! {
+                                            button {
+                                                class: "dropdown-item",
+                                                onclick: move |_| {
+                                                    show_history.set(false);
+                                                    actions.send(AppAction::OpenProject(entry_path.clone()));
+                                                },
+                                                div { class: "dropdown-item-name", "{entry_name}" }
+                                                div { class: "dropdown-item-path", "{entry_path}" }
+                                            }
+                                        }
                                     }
                                 }
                             }
-                        });
-                        self.handle_history_action(history_action);
-                    });
-                });
-
-                let rect = ui.max_rect();
-                let line_rect = egui::Rect::from_min_max(
-                    egui::pos2(rect.left(), rect.bottom() - 2.0),
-                    egui::pos2(rect.right(), rect.bottom()),
-                );
-                ui.painter()
-                    .rect_filled(line_rect, 0.0, uiutil::colors::ACCENT);
-            });
-    }
-
-    /// Show the error display panel
-    fn show_error_panel(&mut self, ctx: &egui::Context) {
-        let should_show_error = self.last_error.is_some();
-        if should_show_error {
-            let error_text = self.last_error.clone().unwrap_or_default();
-            egui::TopBottomPanel::bottom("error_panel")
-                .frame(egui::Frame {
-                    fill: uiutil::colors::ERROR,
-                    inner_margin: 8.0.into(),
-                    ..Default::default()
-                })
-                .show(ctx, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.label(
-                            egui::RichText::new(format!("[ERROR] {}", error_text))
-                                .color(uiutil::colors::TEXT_PRIMARY),
-                        );
-                        if ui.add(uiutil::make_chip_button("Dismiss")).clicked() {
-                            self.last_error = None;
                         }
-                    });
-                });
-        }
-    }
+                    }
 
-    fn handle_history_action(&mut self, action: Option<HistoryAction>) {
-        let action = match action {
-            Some(action) => action,
-            None => return,
-        };
+                    button {
+                        class: "btn-chip",
+                        onclick: move |_| {
+                            let _ = open::that(
+                                "https://github.com/Baker-link-Lab/baker-link-env/blob/main/README.md",
+                            );
+                        },
+                        "Help"
+                    }
+                }
+            }
 
-        match action {
-            HistoryAction::Open(path) => self.open_vscode_for_path(&path),
-            HistoryAction::RemoveMissing { index, path } => {
-                let message = format!("Project not found: {}", path);
-                self.set_error(message.clone());
-                self.log_error(message);
-                self.new_project.history.remove(index);
+            // ===== MAIN CONTENT =====
+            main { class: "main-content",
+
+                div { class: "cards-grid",
+
+                    // ---- Create Project ----
+                    section { class: "card",
+                        h2 { class: "section-title", "Create Project" }
+                        p { class: "section-subtitle",
+                            "Generate a template-based project and open it in VS Code."
+                        }
+
+                        div { class: "card-body",
+                            div { class: "input-row",
+                                label { class: "input-label", "Project name" }
+                                input {
+                                    class: "input",
+                                    value: "{project_name}",
+                                    oninput: move |ev| project_name.set(ev.value()),
+                                }
+                                button {
+                                    class: "btn-primary",
+                                    onclick: move |_| {
+                                        if let Some(path) = rfd::FileDialog::new().pick_folder() {
+                                            let path_str = path.to_string_lossy().to_string();
+                                            let joined = std::path::Path::new(&path_str)
+                                                .join(project_name.read().as_str());
+                                            let joined_str = joined.to_string_lossy().to_string();
+                                            if !joined.exists() {
+                                                let ref_val = template_ref_value.read().trim().to_string();
+                                                let ref_opt = if ref_val.is_empty() { None } else { Some(ref_val) };
+                                                let (branch, tag) = if *template_ref_is_tag.read() {
+                                                    (None, ref_opt)
+                                                } else {
+                                                    (ref_opt, None)
+                                                };
+                                                match cmd::generate_project(
+                                                    project_name.read().as_str(),
+                                                    &path_str,
+                                                    branch,
+                                                    tag,
+                                                ) {
+                                                    Ok(_) => {
+                                                        crate::log_info(format!("Project {} generated", joined_str));
+                                                        let mut h = history.read().clone();
+                                                        if !h.iter().any(|e| e.path == joined_str) {
+                                                            if h.len() >= settings::HISTORY_MAX {
+                                                                h.remove(0);
+                                                            }
+                                                            h.push(settings::HistoryEntry {
+                                                                name: project_name.read().clone(),
+                                                                path: joined_str.clone(),
+                                                            });
+                                                            settings::save_history(&h);
+                                                            history.set(h);
+                                                        }
+                                                    }
+                                                    Err(e) => {
+                                                        crate::log_error(format!("Project generation failed: {}", e));
+                                                    }
+                                                }
+                                            } else {
+                                                crate::log_info(format!("Project {} already exists", joined_str));
+                                            }
+                                            if *vscode_open_enabled.read() {
+                                                let _ = cmd::start_rd();
+                                                crate::log_info(format!("Visual Studio Code opened: {}", joined_str));
+                                                if let Err(e) = cmd::open_vscode(&joined_str) {
+                                                    crate::log_error(
+                                                        format!("Visual Studio Code failed to open: {}", e),
+                                                    );
+                                                }
+                                            }
+                                        }
+                                    },
+                                    "Create"
+                                }
+                            }
+
+                            div { class: "input-row",
+                                label { class: "input-label", "Version" }
+                                div { class: "ref-type-toggle",
+                                    button {
+                                        class: if !*template_ref_is_tag.read() { "btn-chip btn-chip-active" } else { "btn-chip" },
+                                        onclick: move |_| template_ref_is_tag.set(false),
+                                        "Branch"
+                                    }
+                                    button {
+                                        class: if *template_ref_is_tag.read() { "btn-chip btn-chip-active" } else { "btn-chip" },
+                                        onclick: move |_| template_ref_is_tag.set(true),
+                                        "Tag"
+                                    }
+                                }
+                                input {
+                                    class: "input",
+                                    placeholder: if *template_ref_is_tag.read() { "e.g. v1.0.0 (blank = latest)" } else { "e.g. main (blank = HEAD)" },
+                                    value: "{template_ref_value}",
+                                    oninput: move |ev| template_ref_value.set(ev.value()),
+                                }
+                            }
+
+                            div { class: "checkbox-row",
+                                input {
+                                    r#type: "checkbox",
+                                    checked: *vscode_open_enabled.read(),
+                                    onchange: move |ev| {
+                                        vscode_open_enabled.set(ev.checked());
+                                    },
+                                }
+                                span { class: "checkbox-label", "Open VS Code after creation" }
+                            }
+
+                            a {
+                                class: "template-link",
+                                href: "{parameter::TEMPLATE_URL}",
+                                "View template repository"
+                            }
+                        }
+                    }
+
+                    // ---- DAP Server ----
+                    section { class: "card",
+                        div { class: "card-header-row",
+                            div {
+                                h2 { class: "section-title", "probe-rs DAP Server" }
+                                p { class: "section-subtitle",
+                                    "Launch a local DAP server for debugging."
+                                }
+                            }
+                            div { class: "dap-status",
+                                span { class: "{helpers::dap_dot_class(*dap_running.read())}" }
+                                span {
+                                    if *dap_running.read() {
+                                        "Running"
+                                    } else {
+                                        "Stopped"
+                                    }
+                                }
+                            }
+                        }
+
+                        div { class: "card-body",
+                            div { class: "input-row",
+                                label { class: "input-label", "Port" }
+                                input {
+                                    class: "input input-narrow",
+                                    value: "{dap_port}",
+                                    oninput: move |ev| {
+                                        let value = ev.value();
+                                        dap_port.set(value.clone());
+                                        if let Ok(mut server) = crate::dap_server().lock() {
+                                            server.port = value;
+                                        }
+                                    },
+                                }
+                                button {
+                                    class: "btn-primary",
+                                    disabled: *dap_running.read(),
+                                    onclick: move |_| actions.send(AppAction::StartDap),
+                                    "Run"
+                                }
+                                button {
+                                    class: "btn-danger",
+                                    disabled: !*dap_running.read(),
+                                    onclick: move |_| actions.send(AppAction::StopDap),
+                                    "Stop"
+                                }
+                            }
+                            p { class: "hint-text",
+                                "Docker path mapping: set pathMappings in launch.json (remoteRoot / localRoot)."
+                            }
+                        }
+                    }
+                }
+
+                // ---- Log ----
+                section { class: "card card-full",
+                    div { class: "card-header-row",
+                        div {
+                            h2 { class: "section-title", "Log" }
+                            p { class: "section-subtitle", "Build and runtime output." }
+                        }
+                        button {
+                            class: "btn-chip",
+                            onclick: move |_| {
+                                let text = logs.read().join("\n");
+                                if let Ok(mut cb) = arboard::Clipboard::new() {
+                                    let _ = cb.set_text(text);
+                                }
+                            },
+                            "Copy"
+                        }
+                    }
+                    div { class: "log-viewer",
+                        for (idx , line) in logs.read().iter().enumerate() {
+                            div {
+                                key: "{idx}",
+                                class: "log-line {logger::log_level_class(line)}",
+                                span { class: "log-timestamp", "{logger::extract_timestamp(line)}" }
+                                span { class: "log-badge {logger::log_badge_class(line)}",
+                                    "{logger::extract_level(line)}"
+                                }
+                                span { class: "log-message", "{logger::extract_message(line)}" }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ---- Error toast ----
+            if let Some(err) = last_error.read().clone() {
+                div { class: "error-toast",
+                    div { class: "error-toast-inner",
+                        span { "[ERROR] {err}" }
+                        button {
+                            class: "error-dismiss",
+                            onclick: move |_| last_error.set(None),
+                            "\u{00d7}"
+                        }
+                    }
+                }
+            }
+
+            // ---- Docker startup prompt ----
+            if docker_status.read().contains("Off") && !*docker_prompt_dismissed.read()
+                && !*show_splash.read()
+            {
+                div { class: "modal-overlay",
+                    div { class: "modal",
+                        h3 { class: "modal-title", "Rancher Desktop" }
+                        p { class: "modal-text", "Docker is not running." }
+                        p { class: "modal-text", "Start Rancher Desktop now?" }
+                        div { class: "modal-actions",
+                            button {
+                                class: "btn-primary",
+                                onclick: move |_| {
+                                    actions.send(AppAction::StartDocker);
+                                    docker_prompt_dismissed.set(true);
+                                },
+                                "Start"
+                            }
+                            button {
+                                class: "btn-chip",
+                                onclick: move |_| docker_prompt_dismissed.set(true),
+                                "Not now"
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ---- Reset confirmation modal ----
+            if *show_reset_confirm.read() {
+                div { class: "modal-overlay",
+                    div { class: "modal",
+                        h3 { class: "modal-title", "Reset Settings" }
+                        p { class: "modal-text",
+                            "All settings including project history will be cleared."
+                        }
+                        p { class: "modal-text",
+                            "The application will restart from the splash screen."
+                        }
+                        div { class: "modal-actions",
+                            button {
+                                class: "btn-danger",
+                                onclick: move |_| {
+                                    settings::reset_all();
+                                    history.set(vec![]);
+                                    show_reset_confirm.set(false);
+                                    show_splash.set(true);
+                                },
+                                "Reset"
+                            }
+                            button {
+                                class: "btn-chip",
+                                onclick: move |_| show_reset_confirm.set(false),
+                                "Cancel"
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ---- Splash screen ----
+            if *show_splash.read() {
+                div {
+                    class: "splash-overlay",
+                    onclick: move |_| show_splash.set(false),
+                    div { class: "splash-glow" }
+                    div { class: "splash-glow splash-glow-2" }
+                    div { class: "splash-content",
+                        img {
+                            class: "splash-logo",
+                            src: "{helpers::logo_data_uri()}",
+                            alt: "Baker Link",
+                        }
+                        div { class: "splash-shimmer" }
+                    }
+                    p { class: "splash-subtitle", "{parameter::APP_NAME}" }
+                    p { class: "splash-version", "{parameter::build_version_label()}" }
+                }
             }
         }
     }
-
-    fn open_vscode_for_path(&mut self, path: &str) {
-        let _ = cmd::start_rd();
-        match cmd::open_vscode(path) {
-            Ok(_) => {
-                self.display_buffer
-                    .log_info(format!("Visual Studio Code opened: {}", path));
-            }
-            Err(e) => {
-                self.set_error(format!("VSCode open failed: {}", e));
-                self.log_error(format!(
-                    "Visual Studio Code failed to open: {}: {}",
-                    path, e
-                ));
-            }
-        };
-    }
-
-    fn start_rancher_desktop(&mut self) {
-        match cmd::start_rd() {
-            Ok(_) => {
-                self.display_buffer
-                    .log_info("Rancher Desktop started".to_string());
-                self.docker_prompt_dismissed = true;
-            }
-            Err(e) => {
-                let message = format!("Rancher Desktop start failed: {}", e);
-                self.set_error(message.clone());
-                self.log_error(message);
-            }
-        }
-        self.last_docker_check = Instant::now() - Duration::from_secs(4);
-    }
-
-    fn set_error(&mut self, msg: String) {
-        self.last_error = Some(msg);
-    }
-
-    fn log_error(&mut self, msg: String) {
-        self.display_buffer.log_error(msg);
-    }
-}
-
-impl eframe::App for EvnApp {
-    fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        eframe::set_value(storage, eframe::APP_KEY, self);
-    }
-
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.initialize();
-        self.update_docker_status();
-        self.show_top_panel(ctx);
-        self.show_error_panel(ctx);
-        self.show_docker_prompt(ctx);
-
-        egui::CentralPanel::default().show(ctx, |ui| {
-            // Project Creation Section
-            let frame_project = uiutil::card_frame();
-            frame_project.show(ui, |ui| {
-                ProjectCreatePanel::show(ui, &mut self.new_project, &mut self.display_buffer);
-            });
-
-            ui.add_space(8.0);
-
-            // DAP Server Section
-            let frame_dap = uiutil::card_frame();
-            frame_dap.show(ui, |ui| {
-                DapServerPanel::show(ui, &mut self.probe_rs_dap_server, &mut self.display_buffer);
-            });
-
-            ui.add_space(8.0);
-
-            // Logger Section
-            let frame_logger = uiutil::card_frame_alt();
-            frame_logger.show(ui, |ui| {
-                LoggerPanel::show(ui, &mut self.display_buffer);
-            });
-        });
-
-        if self.info {
-            let _ = open::that(HELP_URL);
-            self.info = false;
-        }
-    }
-}
-
-#[derive(Copy, Clone, PartialEq)]
-enum DockerStatus {
-    Unknown,
-    Running,
-    Stopped,
-}
-
-enum HistoryAction {
-    Open(String),
-    RemoveMissing { index: usize, path: String },
 }

@@ -16,35 +16,6 @@ const CREATE_NO_WINDOW: u32 = 0x08000000;
 #[cfg(target_os = "macos")]
 const ZSH_PROFILE: &str = ".zshrc";
 
-#[derive(serde::Deserialize, serde::Serialize, PartialEq, Clone)]
-pub struct Project {
-    pub name: String,
-    path: String,
-}
-
-impl Project {
-    pub fn get_path(&self) -> String {
-        self.joined_path().to_str().unwrap().to_string()
-    }
-
-    pub fn is_folder_exists(&self) -> bool {
-        std::path::Path::new(&self.get_path()).exists()
-    }
-
-    fn joined_path(&self) -> std::path::PathBuf {
-        std::path::Path::new(&self.path).join(&self.name)
-    }
-}
-
-#[derive(serde::Deserialize, serde::Serialize)]
-pub struct NewProject {
-    pub name: String,
-    pub path: String,
-    pub vscode_open_enabled: bool,
-    pub history: Vec<Project>,
-    history_max: usize,
-}
-
 #[derive(serde::Deserialize, serde::Serialize)]
 pub struct ProbeRsDapServer {
     pub port: String,
@@ -68,18 +39,6 @@ impl Default for DapServerStatus {
     }
 }
 
-impl Default for NewProject {
-    fn default() -> Self {
-        Self {
-            name: "myproject".to_string(),
-            path: "".to_string(),
-            vscode_open_enabled: true,
-            history: Vec::with_capacity(10),
-            history_max: 10,
-        }
-    }
-}
-
 impl Default for ProbeRsDapServer {
     fn default() -> Self {
         Self {
@@ -88,26 +47,6 @@ impl Default for ProbeRsDapServer {
             handle: None,
             status: DapServerStatus::Stopped,
         }
-    }
-}
-
-impl NewProject {
-    pub fn history_push(&mut self) -> bool {
-        let current = Project {
-            name: self.name.clone(),
-            path: self.path.clone(),
-        };
-
-        if self.history.contains(&current) {
-            return false;
-        }
-
-        if self.history.len() == self.history_max {
-            self.history.remove(0);
-        }
-
-        self.history.push(current);
-        true
     }
 }
 
@@ -133,13 +72,20 @@ pub fn start_rd() -> std::result::Result<(), String> {
     }
 }
 
-pub fn generate_project(name: &str, path: &str) -> anyhow::Result<std::path::PathBuf> {
+pub fn generate_project(
+    name: &str,
+    path: &str,
+    branch: Option<String>,
+    tag: Option<String>,
+) -> anyhow::Result<std::path::PathBuf> {
     std::env::set_current_dir(path).unwrap();
     let generate_args = cargo_generate::GenerateArgs {
         name: Some(name.to_string()),
         vcs: Some(cargo_generate::Vcs::Git),
         template_path: cargo_generate::TemplatePath {
             git: Some(parameter::TUTORIAL_TEMPLATE.to_string()),
+            branch,
+            tag,
             ..cargo_generate::TemplatePath::default()
         },
         ..cargo_generate::GenerateArgs::default()
@@ -184,6 +130,7 @@ impl ProbeRsDapServer {
             shutdown.cancel();
         }
         if let Some(handle) = self.handle.take() {
+            // Detach the join to avoid blocking the UI thread while the server shuts down.
             thread::spawn(move || {
                 let _ = handle.join();
             });
@@ -205,6 +152,7 @@ fn spawn_dap_server_thread(
     log_tx: std::sync::mpsc::Sender<String>,
 ) -> std::thread::JoinHandle<()> {
     thread::spawn(move || {
+        let shutdown_probe = shutdown_task.clone();
         let runtime = match Builder::new_current_thread().enable_all().build() {
             Ok(runtime) => runtime,
             Err(error) => {
@@ -223,7 +171,11 @@ fn spawn_dap_server_thread(
         ));
 
         if let Err(error) = result {
-            let _ = log_tx.send(format!("DAP server stopped: {error}"));
+            if shutdown_probe.is_cancelled() {
+                let _ = log_tx.send("DAP server shutdown requested".to_string());
+            } else {
+                let _ = log_tx.send(format!("[ERROR] DAP server stopped: {error}"));
+            }
         }
     })
 }
@@ -234,6 +186,7 @@ fn open_vscode_windows(path: &str) -> Result<std::process::Output, std::io::Erro
     std::process::Command::new("code.cmd")
         .arg(path)
         .env("PATH", env_path)
+        .creation_flags(CREATE_NO_WINDOW)
         .output()
 }
 
@@ -248,16 +201,16 @@ fn open_vscode_macos(path: &str) -> Result<std::process::Output, std::io::Error>
 
 #[cfg(target_os = "windows")]
 fn start_rd_windows() -> std::result::Result<(), String> {
-    let path = std::env!("PATH");
+    let path = std::env::var("PATH").unwrap_or_default();
     match std::process::Command::new("rdctl")
         .arg("start")
         .arg("--application.start-in-background")
-        .env("PATH", path)
+        .env("PATH", &path)
         .creation_flags(CREATE_NO_WINDOW)
         .spawn()
     {
         Ok(_) => Ok(()),
-        Err(e) => Err(format!("Error: {}, $PATH: {}", e, path)),
+        Err(e) => Err(format!("Error: {}", e)),
     }
 }
 
@@ -281,12 +234,13 @@ fn start_rd_macos() -> std::result::Result<(), String> {
 
 #[cfg(target_os = "windows")]
 fn docker_info_windows() -> Result<bool, String> {
-    let path = std::env!("PATH");
+    let path = std::env::var("PATH").unwrap_or_default();
     let output = Command::new("docker")
         .arg("info")
         .arg("--format")
         .arg("{{.ServerVersion}}")
         .env("PATH", path)
+        .creation_flags(CREATE_NO_WINDOW)
         .output()
         .map_err(|e| format!("docker info failed: {}", e))?;
     Ok(output.status.success())
@@ -294,22 +248,19 @@ fn docker_info_windows() -> Result<bool, String> {
 
 #[cfg(target_os = "macos")]
 fn docker_info_macos() -> Result<bool, String> {
+    let home_dir = std::env::var("HOME").unwrap_or_default();
+    let current_path = std::env::var("PATH").unwrap_or_default();
+    let full_path = format!(
+        "{}/.rd/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:{}",
+        home_dir, current_path
+    );
     let output = Command::new("docker")
         .arg("info")
         .arg("--format")
         .arg("{{.ServerVersion}}")
+        .env("PATH", full_path)
         .output()
         .map_err(|e| format!("docker info failed: {}", e))?;
-    Ok(output.status.success())
-}
-
-pub fn are_apps_running(app_name: &str) -> bool {
-    let mut system = sysinfo::System::new_all();
-    system.refresh_processes();
-    let count = system
-        .processes()
-        .values()
-        .filter(|p| p.name() == app_name)
-        .count();
-    count >= 2
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    Ok(output.status.success() && !stdout.trim().is_empty())
 }

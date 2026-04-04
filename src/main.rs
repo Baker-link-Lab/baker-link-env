@@ -2,29 +2,43 @@
 
 mod app;
 mod cmd;
+mod helpers;
 mod logger;
 mod parameter;
-mod ui_modules;
-mod uiutil;
+mod settings;
 
-fn main() -> eframe::Result {
-    env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
+use dioxus::desktop::{Config, LogicalSize, WindowBuilder};
+use log::LevelFilter;
+use std::sync::{Mutex, OnceLock};
 
-    let native_options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_icon(
-                eframe::icon_data::from_png_bytes(&include_bytes!("../icon/icon.png")[..])
-                    .expect("Failed to load icon"),
-            )
-            .with_inner_size([480.0, 340.0])
-            .with_min_inner_size([360.0, 260.0])
-            .with_max_inner_size([560.0, 420.0]),
-        ..Default::default()
-    };
+const LOGO_PNG_BYTES: &[u8] = include_bytes!("../assets/baker-link-logo.png");
 
-    eframe::run_native(
-        parameter::APP_NAME,
-        native_options,
-        Box::new(|cc| Ok(Box::new(app::EvnApp::new(cc)))),
-    )
+static DAP_SERVER: OnceLock<Mutex<cmd::ProbeRsDapServer>> = OnceLock::new();
+
+pub use logger::{display_buffer, log_error, log_info};
+
+pub fn dap_server() -> &'static Mutex<cmd::ProbeRsDapServer> {
+    DAP_SERVER.get_or_init(|| Mutex::new(cmd::ProbeRsDapServer::default()))
+}
+
+fn main() {
+    let mut logger = env_logger::Builder::new();
+    if std::env::var("RUST_LOG").is_ok() {
+        logger.parse_default_env();
+    } else {
+        logger.filter_level(LevelFilter::Off);
+    }
+    let _ = logger.try_init();
+
+    let icon = helpers::load_window_icon();
+    dioxus::LaunchBuilder::desktop()
+        .with_cfg(
+            Config::new().with_icon(icon).with_window(
+                WindowBuilder::new()
+                    .with_title(parameter::APP_NAME)
+                    .with_inner_size(LogicalSize::new(960.0, 680.0))
+                    .with_min_inner_size(LogicalSize::new(800.0, 560.0)),
+            ),
+        )
+        .launch(app::App);
 }

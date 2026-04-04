@@ -1,6 +1,6 @@
 [package]
 name = "baker-link-env"
-version = "0.1.5"
+version = "0.2.1"
 edition = "2021"
 build = "build.rs"
 
@@ -8,34 +8,27 @@ build = "build.rs"
 winres = "0.1"
 
 [dependencies]
-egui = "0.28"
-eframe = { version = "0.28", default-features = false, features = [
-    "accesskit",     # Make egui compatible with screen readers. NOTE: adds a lot of dependencies.
-    "default_fonts", # Embed the default egui fonts.
-    "glow",          # Use the glow rendering backend. Alternative: "wgpu".
-    "persistence",   # Enable restoring app state when restarting the app.
-] }
+dioxus = { version = "0.7.1" }
+dioxus-desktop = "0.7.1"
 log = "0.4"
-
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 env_logger = "0.11.3"
 rfd = "0.14.1"
 cargo-generate = "0.23"
 anyhow = "1.0.86"
+base64 = "0.22"
 chrono = "0.4.38"
-sysinfo = "0.30.13"
+dirs = "5"
 open = "5.3.0"
+image = { version = "0.25", default-features = false, features = ["png"] }
+arboard = "3"
 probe-rs-tools = { path = "external/probe-rs/probe-rs-tools" }
-tokio = { version = "1", features = ["rt", "time"] }
+tokio = { version = "1", features = ["rt", "time", "sync"] }
 tokio-util = "0.7"
 time = "0.3"
+futures-util = "0.3"
 
-
-[package.metadata.packager]
-before-packaging-command = "cargo build --release"
-product-name = "Baker link. Env"
-identifier = "baker.link.env"
-resources = ["Cargo.toml", "src", "icon/"]
-icons = ["icon/icon.ico", "icon/icon.png"]
-out-dir="./dist"
-license-file = "LICENSE"
+[features]
+default = ["desktop"]
+desktop = ["dioxus/desktop"]
