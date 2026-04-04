@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.2.2
+
+### Bug fixes
+- Fixed macOS build failure caused by Rust compiler's inline module path resolution using `..` in `#[path]` attributes in `probe-rs-tools`. The virtual directories (`src/cmd/`, `src/util/`) are now created before the build step on macOS so that path traversal succeeds.
+
 ## v0.2.0
 
 ### User-facing changes

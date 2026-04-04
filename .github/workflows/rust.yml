@@ -34,6 +34,10 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install pkg-config libgit2
 
+      - name: Fix probe-rs inline module path resolution on macOS
+        if: runner.os == 'macOS'
+        run: mkdir -p external/probe-rs/probe-rs-tools/src/cmd external/probe-rs/probe-rs-tools/src/util
+
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
 
