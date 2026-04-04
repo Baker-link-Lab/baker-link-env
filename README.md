@@ -98,38 +98,6 @@ xattr -d com.apple.quarantine "/Applications/Baker link. Env.app"
 
 1. Set the port (default: `50001`) in the **probe-rs DAP Server** panel.
 2. Click **Run**. The server starts and listens for VS Code debugger connections.
-3. In VS Code's `launch.json`, configure:
-
-```json
-{
-  "type": "probe-rs-debug",
-  "request": "launch",
-  "server": "localhost:50001"
-}
-```
-
-### 3. Docker Path Mapping (Dev Container)
-
-When the project is compiled inside a Docker container, DWARF debug info contains container paths (e.g. `/myproject/src/main.rs`). Use `pathMappings` in `launch.json` to map them to host paths:
-
-```json
-{
-  "pathMappings": [
-    { "remoteRoot": "/myproject", "localRoot": "C:/Users/you/projects/myproject" }
-  ]
-}
-```
-
-### 4. System Tray
-
-Baker link. Env runs in the system tray. Right-click the tray icon to:
-
-- Start / Stop the DAP server
-- Check Docker status and start Rancher Desktop
-- Open a recent project in VS Code
-- Show / hide the main window
-
----
 
 ## License
 
