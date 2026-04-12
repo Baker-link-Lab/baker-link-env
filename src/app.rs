@@ -237,8 +237,12 @@ pub fn App() -> Element {
                         onclick: move |_| show_reset_confirm.set(true),
                         "B"
                     }
-                    span { class: "text-sm font-extrabold text-bkl-text leading-none tracking-tight", "{parameter::APP_NAME}" }
-                    span { class: "text-[10px] text-bkl-text-faint ml-1.5", "{parameter::build_version_label()}" }
+                    span { class: "text-sm font-extrabold text-bkl-text leading-none tracking-tight",
+                        "{parameter::APP_NAME}"
+                    }
+                    span { class: "text-[10px] text-bkl-text-faint ml-1.5",
+                        "{parameter::build_version_label()}"
+                    }
 
                     div { class: "flex items-center gap-1.5 ml-4 pl-4 border-l border-bkl-border",
                         span { class: "size-2 rounded-full inline-block shrink-0 {helpers::docker_dot_class(&docker_status.read())}" }
@@ -263,7 +267,9 @@ pub fn App() -> Element {
                         if *show_history.read() {
                             div { class: "dropdown-menu",
                                 if history.read().is_empty() {
-                                    div { class: "p-4 text-center text-xs text-bkl-text-faint", "No history yet" }
+                                    div { class: "p-4 text-center text-xs text-bkl-text-faint",
+                                        "No history yet"
+                                    }
                                 }
                                 for entry in history.read().iter() {
                                     {
@@ -305,14 +311,18 @@ pub fn App() -> Element {
 
                     // ---- Create Project ----
                     section { class: "card",
-                        h2 { class: "m-0 text-[15px] font-bold text-bkl-text tracking-[0.02em]", "Create Project" }
+                        h2 { class: "m-0 text-[15px] font-bold text-bkl-text tracking-[0.02em]",
+                            "Create Project"
+                        }
                         p { class: "mt-0.5 text-xs text-bkl-text-muted",
                             "Generate a template-based project and open it in VS Code."
                         }
 
                         div { class: "mt-4",
                             div { class: "flex flex-wrap items-center gap-2",
-                                label { class: "text-[13px] font-semibold text-bkl-text-muted", "Project name" }
+                                label { class: "text-[13px] font-semibold text-bkl-text-muted",
+                                    "Project name"
+                                }
                                 input {
                                     class: "input",
                                     value: "{project_name}",
@@ -385,12 +395,16 @@ pub fn App() -> Element {
                                         show_version_opts.set(ev.checked());
                                     },
                                 }
-                                span { class: "text-[13px] text-bkl-text-muted", "Specify template version" }
+                                span { class: "text-[13px] text-bkl-text-muted",
+                                    "Specify template version"
+                                }
                             }
 
                             if *show_version_opts.read() {
                                 div { class: "flex flex-wrap items-center gap-2",
-                                    label { class: "text-[13px] font-semibold text-bkl-text-muted", "Version" }
+                                    label { class: "text-[13px] font-semibold text-bkl-text-muted",
+                                        "Version"
+                                    }
                                     div { class: "flex gap-1",
                                         button {
                                             class: if !*template_ref_is_tag.read() { "btn-chip btn-chip-active" } else { "btn-chip" },
@@ -420,7 +434,9 @@ pub fn App() -> Element {
                                         vscode_open_enabled.set(ev.checked());
                                     },
                                 }
-                                span { class: "text-[13px] text-bkl-text-muted", "Open VS Code after creation" }
+                                span { class: "text-[13px] text-bkl-text-muted",
+                                    "Open VS Code after creation"
+                                }
                             }
 
                             a {
@@ -435,7 +451,9 @@ pub fn App() -> Element {
                     section { class: "card",
                         div { class: "flex items-center justify-between",
                             div {
-                                h2 { class: "m-0 text-[15px] font-bold text-bkl-text tracking-[0.02em]", "probe-rs DAP Server" }
+                                h2 { class: "m-0 text-[15px] font-bold text-bkl-text tracking-[0.02em]",
+                                    "probe-rs DAP Server"
+                                }
                                 p { class: "mt-0.5 text-xs text-bkl-text-muted",
                                     "Launch a local DAP server for debugging."
                                 }
@@ -455,36 +473,58 @@ pub fn App() -> Element {
                         div { class: "mt-4",
                             div { class: "mb-3.5 pb-3.5 border-b border-bkl-border",
                                 div { class: "flex items-center justify-between",
-                                    span { class: "text-[13px] font-semibold text-bkl-text-muted", "Connected Device" }
+                                    span { class: "text-[13px] font-semibold text-bkl-text-muted",
+                                        "Connected Device"
+                                    }
                                     button {
                                         class: "btn-chip",
                                         disabled: *detecting.read(),
                                         onclick: move |_| actions.send(AppAction::DetectDevice),
-                                        if *detecting.read() { "Detecting..." } else { "Detect" }
+                                        if *detecting.read() {
+                                            "Detecting..."
+                                        } else {
+                                            "Detect"
+                                        }
                                     }
                                 }
                                 if !probe_name.read().is_empty() {
                                     div { class: "probe-info-grid",
                                         div { class: "flex items-baseline gap-2 min-w-0",
-                                            span { class: "text-[10px] font-bold text-bkl-text-faint uppercase tracking-[0.04em] shrink-0", "Probe" }
-                                            span { class: "text-xs text-bkl-text-muted font-mono overflow-hidden text-ellipsis whitespace-nowrap", "{probe_name}" }
+                                            span { class: "text-[10px] font-bold text-bkl-text-faint uppercase tracking-[0.04em] shrink-0",
+                                                "Probe"
+                                            }
+                                            span { class: "text-xs text-bkl-text-muted font-mono overflow-hidden text-ellipsis whitespace-nowrap",
+                                                "{probe_name}"
+                                            }
                                         }
                                         if !chip_name.read().is_empty() {
                                             div { class: "flex items-baseline gap-2 min-w-0",
-                                                span { class: "text-[10px] font-bold text-bkl-text-faint uppercase tracking-[0.04em] shrink-0", "Chip" }
-                                                span { class: "text-xs font-mono font-semibold text-bkl-orange-light overflow-hidden text-ellipsis whitespace-nowrap", "{chip_name}" }
+                                                span { class: "text-[10px] font-bold text-bkl-text-faint uppercase tracking-[0.04em] shrink-0",
+                                                    "Chip"
+                                                }
+                                                span { class: "text-xs font-mono font-semibold text-bkl-orange-light overflow-hidden text-ellipsis whitespace-nowrap",
+                                                    "{chip_name}"
+                                                }
                                             }
                                         }
                                         if !chip_cores.read().is_empty() {
                                             div { class: "flex items-baseline gap-2 min-w-0",
-                                                span { class: "text-[10px] font-bold text-bkl-text-faint uppercase tracking-[0.04em] shrink-0", "Core" }
-                                                span { class: "text-xs text-bkl-text-muted font-mono overflow-hidden text-ellipsis whitespace-nowrap", "{chip_cores}" }
+                                                span { class: "text-[10px] font-bold text-bkl-text-faint uppercase tracking-[0.04em] shrink-0",
+                                                    "Core"
+                                                }
+                                                span { class: "text-xs text-bkl-text-muted font-mono overflow-hidden text-ellipsis whitespace-nowrap",
+                                                    "{chip_cores}"
+                                                }
                                             }
                                         }
                                         if !chip_voltage.read().is_empty() {
                                             div { class: "flex items-baseline gap-2 min-w-0",
-                                                span { class: "text-[10px] font-bold text-bkl-text-faint uppercase tracking-[0.04em] shrink-0", "Voltage" }
-                                                span { class: "text-xs text-bkl-text-muted font-mono overflow-hidden text-ellipsis whitespace-nowrap", "{chip_voltage}" }
+                                                span { class: "text-[10px] font-bold text-bkl-text-faint uppercase tracking-[0.04em] shrink-0",
+                                                    "Voltage"
+                                                }
+                                                span { class: "text-xs text-bkl-text-muted font-mono overflow-hidden text-ellipsis whitespace-nowrap",
+                                                    "{chip_voltage}"
+                                                }
                                             }
                                         }
                                     }
@@ -492,7 +532,9 @@ pub fn App() -> Element {
                             }
 
                             div { class: "flex flex-wrap items-center gap-2",
-                                label { class: "text-[13px] font-semibold text-bkl-text-muted", "Port" }
+                                label { class: "text-[13px] font-semibold text-bkl-text-muted",
+                                    "Port"
+                                }
                                 input {
                                     class: "input min-w-[100px] w-[100px]",
                                     value: "{dap_port}",
@@ -528,8 +570,12 @@ pub fn App() -> Element {
                 section { class: "card mt-5 flex-1 flex flex-col min-h-0",
                     div { class: "flex items-center justify-between",
                         div {
-                            h2 { class: "m-0 text-[15px] font-bold text-bkl-text tracking-[0.02em]", "Log" }
-                            p { class: "mt-0.5 text-xs text-bkl-text-muted", "Build and runtime output." }
+                            h2 { class: "m-0 text-[15px] font-bold text-bkl-text tracking-[0.02em]",
+                                "Log"
+                            }
+                            p { class: "mt-0.5 text-xs text-bkl-text-muted",
+                                "Build and runtime output."
+                            }
                         }
                         button {
                             class: "btn-chip",
@@ -547,7 +593,9 @@ pub fn App() -> Element {
                             div {
                                 key: "{idx}",
                                 class: "log-line {logger::log_level_class(line)}",
-                                span { class: "text-bkl-text-faint shrink-0 select-all", "{logger::extract_timestamp(line)}" }
+                                span { class: "text-bkl-text-faint shrink-0 select-all",
+                                    "{logger::extract_timestamp(line)}"
+                                }
                                 span { class: "log-badge {logger::log_badge_class(line)}",
                                     "{logger::extract_level(line)}"
                                 }
@@ -579,8 +627,12 @@ pub fn App() -> Element {
                 div { class: "modal-overlay",
                     div { class: "modal",
                         h3 { class: "m-0 mb-3 text-base font-bold text-bkl-text", "Rancher Desktop" }
-                        p { class: "m-0 mb-1 text-[13px] text-bkl-text-muted", "Docker is not running." }
-                        p { class: "m-0 mb-1 text-[13px] text-bkl-text-muted", "Start Rancher Desktop now?" }
+                        p { class: "m-0 mb-1 text-[13px] text-bkl-text-muted",
+                            "Docker is not running."
+                        }
+                        p { class: "m-0 mb-1 text-[13px] text-bkl-text-muted",
+                            "Start Rancher Desktop now?"
+                        }
                         div { class: "flex gap-2 mt-5",
                             button {
                                 class: "btn-primary",
@@ -647,8 +699,12 @@ pub fn App() -> Element {
                         }
                         div { class: "splash-shimmer" }
                     }
-                    p { class: "mt-5 text-[13px] font-semibold text-bkl-text-muted tracking-[0.08em] animate-splash-text-1", "{parameter::APP_NAME}" }
-                    p { class: "mt-1.5 text-[11px] text-bkl-text-faint animate-splash-text-2", "{parameter::build_version_label()}" }
+                    p { class: "mt-5 text-[13px] font-semibold text-bkl-text-muted tracking-[0.08em] animate-splash-text-1",
+                        "{parameter::APP_NAME}"
+                    }
+                    p { class: "mt-1.5 text-[11px] text-bkl-text-faint animate-splash-text-2",
+                        "{parameter::build_version_label()}"
+                    }
                 }
             }
         }
