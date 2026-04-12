@@ -149,7 +149,7 @@ if let Some(err) = last_error.read().clone() {
 
 ### 4. CSS スタイリング
 
-`assets/main.css` に追加。CSS変数プレフィックスは `--bkl-`:
+`input.css` の `@layer components` に追加。Tailwind ユーティリティクラスを `@apply` で使用:
 
 ```css
 .my-component {
@@ -184,5 +184,5 @@ use_future(move || async move {
 - [ ] 副作用は `AppAction` + `use_coroutine` 経由
 - [ ] 外部コマンド実行は `std::thread::spawn` + `oneshot::channel` でUIをブロックしない
 - [ ] ログ出力は `crate::log_info()` / `crate::log_error()` を使用
-- [ ] CSSクラスは `assets/main.css` に追加し、`--bkl-` プレフィックスの変数を使う
+- [ ] CSSクラスは `input.css` の `@layer components` に追加し、Tailwind `bkl` カラーを使う
 - [ ] エラーは `last_error` signal に設定してトーストで表示

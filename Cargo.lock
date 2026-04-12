@@ -472,6 +472,7 @@ dependencies = [
  "image",
  "log",
  "open",
+ "probe-rs",
  "probe-rs-tools",
  "rfd 0.14.1",
  "serde",

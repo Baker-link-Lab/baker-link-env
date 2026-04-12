@@ -1,0 +1,256 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ===== Base ===== */
+@layer base {
+  html, body {
+    @apply m-0 p-0 bg-bkl-base text-bkl-text font-sans antialiased;
+  }
+  input[type="checkbox"] {
+    accent-color: theme('colors.bkl.orange');
+  }
+}
+
+/* ===== Components ===== */
+@layer components {
+
+  /* ---- App shell ---- */
+  .app-shell {
+    @apply flex flex-col h-screen overflow-hidden;
+    background:
+      radial-gradient(ellipse at 0% 30%, rgba(224, 122, 31, 0.06), transparent 50%),
+      theme('colors.bkl.base');
+  }
+
+  /* ---- Brand icon ---- */
+  .brand-icon {
+    @apply flex items-center justify-center shrink-0 overflow-hidden rounded-[6px];
+    width: 26px;
+    height: 26px;
+    background: rgba(224, 122, 31, 0.18);
+  }
+  .brand-icon-button {
+    @apply border-none p-0 cursor-pointer;
+    transition: background 200ms, transform 160ms;
+  }
+  .brand-icon-button:hover {
+    @apply scale-[1.08];
+    background: rgba(224, 122, 31, 0.35);
+  }
+
+  /* ---- Status dots ---- */
+  .status-dot-green {
+    @apply bg-bkl-green shadow-[0_0_6px_rgba(61,214,140,0.4)];
+  }
+  .status-dot-red {
+    @apply bg-bkl-red shadow-[0_0_6px_rgba(239,68,68,0.4)];
+  }
+  .status-dot-gray {
+    @apply bg-bkl-gray;
+  }
+  .status-dot-pulse {
+    @apply bg-bkl-green animate-pulse-green;
+  }
+
+  /* ---- Card ---- */
+  .card {
+    @apply bg-bkl-surface border border-bkl-border rounded-[14px] p-5 relative;
+    transition: border-color 200ms ease, box-shadow 200ms ease;
+  }
+  .card:hover {
+    @apply border-bkl-border-accent;
+    box-shadow: 0 0 20px rgba(224, 122, 31, 0.05);
+  }
+  .card::before {
+    content: '';
+    @apply absolute left-0 top-3 bottom-3 w-[3px] rounded-sm;
+    background: linear-gradient(180deg, theme('colors.bkl.orange-light'), theme('colors.bkl.orange-dark'));
+  }
+
+  /* ---- Buttons ---- */
+  .btn-primary {
+    @apply rounded-[10px] border border-bkl-orange-dark px-4 py-2 text-xs font-bold text-white cursor-pointer;
+    background: linear-gradient(135deg, #f0963f 0%, #e07a1f 100%);
+    transition: transform 160ms ease, box-shadow 200ms ease, filter 160ms ease;
+  }
+  .btn-primary:hover {
+    @apply -translate-y-px;
+    box-shadow: 0 4px 16px rgba(224, 122, 31, 0.35);
+  }
+  .btn-danger {
+    @apply rounded-[10px] border px-4 py-2 text-xs font-bold text-white cursor-pointer;
+    background: linear-gradient(135deg, #ef6b4a 0%, #d6452b 100%);
+    border-color: #a23220;
+    transition: transform 160ms ease, box-shadow 200ms ease, filter 160ms ease;
+  }
+  .btn-danger:hover {
+    @apply -translate-y-px;
+    box-shadow: 0 4px 16px rgba(214, 69, 43, 0.35);
+  }
+  .btn-chip {
+    @apply bg-bkl-surface text-bkl-text-muted border border-bkl-border rounded-[10px] py-1 px-3 text-[11px] font-bold cursor-pointer;
+    transition: transform 160ms ease, box-shadow 200ms ease, filter 160ms ease;
+  }
+  .btn-chip:hover {
+    @apply bg-bkl-surface-hover border-bkl-border-accent -translate-y-px;
+  }
+  .btn-chip-active {
+    @apply text-bkl-orange border-bkl-orange;
+  }
+  .btn-primary:disabled,
+  .btn-danger:disabled,
+  .btn-chip:disabled {
+    @apply opacity-30 cursor-not-allowed;
+    transform: none !important;
+    box-shadow: none !important;
+  }
+
+  /* ---- Input ---- */
+  .input {
+    @apply bg-bkl-surface-inset border border-bkl-border rounded-[10px] text-bkl-text py-2 px-3 text-[13px] min-w-[200px];
+    transition: border-color 200ms, box-shadow 200ms;
+  }
+  .input::placeholder {
+    @apply text-bkl-text-faint;
+  }
+  .input:focus {
+    @apply outline-none border-bkl-orange;
+    box-shadow: 0 0 0 3px theme('colors.bkl.orange-glow');
+  }
+
+  /* ---- Template link ---- */
+  .template-link {
+    @apply inline-block mt-2.5 text-xs font-semibold text-bkl-orange no-underline;
+  }
+  .template-link:hover {
+    @apply text-bkl-orange-light underline;
+  }
+
+  /* ---- Probe info grid ---- */
+  .probe-info-grid {
+    @apply grid grid-cols-2 gap-x-4 gap-y-1.5 mt-2.5 py-2.5 px-3 bg-bkl-surface-inset border border-bkl-border rounded-[10px];
+  }
+
+  /* ---- Log viewer ---- */
+  .log-viewer {
+    @apply bg-bkl-surface-inset border border-bkl-border rounded-xl py-3 px-3.5 flex-1 min-h-[80px] overflow-y-scroll font-mono text-xs leading-relaxed mt-3;
+  }
+  .log-line {
+    @apply flex items-baseline gap-2 py-0.5;
+    border-bottom: 1px solid rgba(42, 39, 51, 0.4);
+  }
+
+  /* ---- Log badges ---- */
+  .log-badge {
+    @apply text-[10px] font-bold px-[5px] rounded leading-[18px] shrink-0 inline-block;
+  }
+  .log-badge-info {
+    @apply text-bkl-orange-light;
+    background: rgba(224, 122, 31, 0.15);
+  }
+  .log-badge-error {
+    @apply text-bkl-red;
+    background: rgba(239, 68, 68, 0.15);
+  }
+  .log-badge-default {
+    @apply text-bkl-gray;
+    background: rgba(107, 114, 128, 0.15);
+  }
+
+  /* ---- Log level colors ---- */
+  .log-info  { @apply text-bkl-text; }
+  .log-error { @apply text-bkl-red; }
+  .log-debug { @apply text-bkl-text-faint; }
+
+  /* ---- Error toast ---- */
+  .error-toast {
+    @apply fixed top-4 right-4 z-50 text-bkl-red text-[13px] max-w-[420px] rounded-xl py-3 px-4 animate-slide-in;
+    background: rgba(30, 10, 10, 0.95);
+    border: 1px solid rgba(239, 68, 68, 0.4);
+    backdrop-filter: blur(8px);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  }
+
+  /* ---- Modal ---- */
+  .modal-overlay {
+    @apply fixed inset-0 z-[100] flex items-center justify-center animate-fade-in;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+  }
+  .modal {
+    @apply bg-bkl-surface border border-bkl-border rounded-[14px] p-6 min-w-[320px] animate-scale-in;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  }
+
+  /* ---- Dropdown ---- */
+  .dropdown-menu {
+    @apply absolute top-full right-0 mt-1 min-w-[300px] max-h-[320px] overflow-y-auto bg-bkl-surface border border-bkl-border rounded-[10px] z-40 animate-scale-in;
+    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
+  }
+  .dropdown-item {
+    @apply block w-full py-2.5 px-3.5 border-none bg-transparent text-bkl-text text-left cursor-pointer;
+    border-bottom: 1px solid rgba(42, 39, 51, 0.4);
+    transition: background 120ms;
+  }
+  .dropdown-item:last-child {
+    @apply border-b-0;
+  }
+  .dropdown-item:hover {
+    @apply bg-bkl-surface-hover;
+  }
+
+  /* ---- Splash screen ---- */
+  .splash-overlay {
+    @apply fixed inset-0 z-[200] flex flex-col items-center justify-center cursor-pointer overflow-hidden animate-splash-fade-in;
+    background: #0a0810;
+  }
+  .splash-glow {
+    @apply absolute rounded-full;
+    width: 340px;
+    height: 340px;
+    background: radial-gradient(circle, rgba(224, 122, 31, 0.25) 0%, transparent 70%);
+    filter: blur(60px);
+    animation: splash-orb-1 3s ease-in-out infinite alternate;
+  }
+  .splash-glow-2 {
+    width: 260px;
+    height: 260px;
+    background: radial-gradient(circle, rgba(240, 150, 63, 0.18) 0%, transparent 70%);
+    filter: blur(50px);
+    animation: splash-orb-2 3s ease-in-out infinite alternate;
+  }
+  .splash-content {
+    @apply relative flex items-center justify-center animate-splash-logo;
+  }
+  .splash-logo {
+    @apply h-10 w-auto relative z-[1];
+    filter: drop-shadow(0 0 24px rgba(224, 122, 31, 0.4));
+  }
+  .splash-shimmer {
+    @apply absolute pointer-events-none;
+    inset: -10px -40px;
+    background: linear-gradient(
+      105deg,
+      transparent 30%,
+      rgba(255, 255, 255, 0.15) 45%,
+      rgba(255, 248, 238, 0.25) 50%,
+      rgba(255, 255, 255, 0.15) 55%,
+      transparent 70%
+    );
+    animation: splash-shimmer 2s ease-in-out infinite 800ms;
+  }
+}
+
+/* ===== Scrollbar ===== */
+.main-content::-webkit-scrollbar { width: 6px; }
+.main-content::-webkit-scrollbar-track { background: transparent; }
+.main-content::-webkit-scrollbar-thumb { background: #2a2733; border-radius: 3px; }
+
+.log-viewer::-webkit-scrollbar { width: 6px; }
+.log-viewer::-webkit-scrollbar-track { background: transparent; }
+.log-viewer::-webkit-scrollbar-thumb { background: #2a2733; border-radius: 3px; }
+.log-viewer::-webkit-scrollbar-thumb:hover { background: #b85d16; }
+
+.dropdown-menu::-webkit-scrollbar { width: 5px; }
+.dropdown-menu::-webkit-scrollbar-thumb { background: #2a2733; border-radius: 3px; }

@@ -26,7 +26,9 @@ src/
   parameter.rs  — 定数、ビルド時Git情報
   settings.rs   — AppSettings JSON永続化(~/.config/baker-link-env/)
 assets/
-  main.css      — ダークテーマ、CSS変数によるデザインシステム
+  tailwind.css  — Tailwindビルド出力（input.css から生成、gitignore対象）
+input.css       — Tailwindソース（@tailwind ディレクティブ + @layer コンポーネント）
+tailwind.config.js — Tailwind設定（bklカラー、フォント、アニメーション定義）
 external/
   probe-rs/     — probe-rsサブモジュール（DAPサーバー実装）
 ```
@@ -48,6 +50,12 @@ cargo run
 # または
 dx serve --platform desktop
 
+# Tailwind CSS ビルド（別ターミナル）
+./tailwindcss -i input.css -o assets/tailwind.css --watch
+
+# Tailwind CSS ビルド（本番）
+./tailwindcss -i input.css -o assets/tailwind.css --minify
+
 # ビルド
 cargo build --release
 
@@ -58,7 +66,9 @@ cargo fmt --check
 
 ## Conventions
 
-- CSS は `assets/main.css` に集約。CSS変数プレフィックスは `--bkl-`（例: `--bkl-orange`, `--bkl-green`）
+- CSS は Tailwind CSS で管理。ソースは `input.css`、ビルド出力は `assets/tailwind.css`（gitignore対象）
+- Tailwind カスタムカラーのプレフィックスは `bkl`（例: `bg-bkl-orange`, `text-bkl-green`）
+- カスタムコンポーネントスタイルは `input.css` の `@layer components` に定義
 - 設定ファイルは `~/.config/baker-link-env/settings.json` に保存
 - `build.rs` で Git ハッシュとタグを環境変数に埋め込む（`GIT_HASH`, `GIT_TAG`）
 - DAPサーバーは `CancellationToken` によるグレースフルシャットダウンを徹底する

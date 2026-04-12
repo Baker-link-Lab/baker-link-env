@@ -23,6 +23,7 @@ dirs = "5"
 open = "5.3.0"
 image = { version = "0.25", default-features = false, features = ["png"] }
 arboard = "3"
+probe-rs = { path = "external/probe-rs/probe-rs" }
 probe-rs-tools = { path = "external/probe-rs/probe-rs-tools" }
 tokio = { version = "1", features = ["rt", "time", "sync"] }
 tokio-util = "0.7"

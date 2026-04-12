@@ -3,6 +3,9 @@ use std::os::windows::process::CommandExt;
 use std::process::Command;
 use std::thread;
 
+use probe_rs::config::TargetSelector;
+use probe_rs::probe::list::Lister;
+use probe_rs::Permissions;
 use probe_rs_tools::cmd::dap_server;
 use time::UtcOffset;
 use tokio::runtime::Builder;
@@ -263,4 +266,69 @@ fn docker_info_macos() -> Result<bool, String> {
         .map_err(|e| format!("docker info failed: {}", e))?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     Ok(output.status.success() && !stdout.trim().is_empty())
+}
+
+pub struct ProbeInfo {
+    pub probe_type: String,
+    pub identifier: String,
+    pub vendor_id: u16,
+    pub product_id: u16,
+    pub serial_number: Option<String>,
+}
+
+pub struct TargetInfo {
+    pub probe: ProbeInfo,
+    pub chip_name: String,
+    pub cores: Vec<String>,
+    pub target_voltage: Option<f32>,
+}
+
+pub fn list_probes() -> Vec<ProbeInfo> {
+    Lister::new()
+        .list_all()
+        .into_iter()
+        .map(|p| ProbeInfo {
+            probe_type: p.probe_type(),
+            identifier: p.identifier.clone(),
+            vendor_id: p.vendor_id,
+            product_id: p.product_id,
+            serial_number: p.serial_number.clone(),
+        })
+        .collect()
+}
+
+pub fn detect_target() -> Result<TargetInfo, String> {
+    let lister = Lister::new();
+    let probes = lister.list_all();
+    let probe_info_raw = probes.first().ok_or("No debug probe found".to_string())?;
+
+    let probe_info = ProbeInfo {
+        probe_type: probe_info_raw.probe_type(),
+        identifier: probe_info_raw.identifier.clone(),
+        vendor_id: probe_info_raw.vendor_id,
+        product_id: probe_info_raw.product_id,
+        serial_number: probe_info_raw.serial_number.clone(),
+    };
+
+    let probe = probe_info_raw
+        .open()
+        .map_err(|e| format!("Failed to open probe: {e}"))?;
+
+    let session = probe
+        .attach(TargetSelector::Auto, Permissions::default())
+        .map_err(|e| format!("Failed to detect target: {e}"))?;
+
+    let chip_name = session.target().name.clone();
+    let cores: Vec<String> = session
+        .list_cores()
+        .into_iter()
+        .map(|(_, core_type)| format!("{core_type:?}"))
+        .collect();
+
+    Ok(TargetInfo {
+        probe: probe_info,
+        chip_name,
+        cores,
+        target_voltage: None,
+    })
 }
