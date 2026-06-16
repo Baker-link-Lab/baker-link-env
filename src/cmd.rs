@@ -62,6 +62,10 @@ pub fn open_vscode(path: &str) -> Result<std::process::Output, std::io::Error> {
     {
         open_vscode_macos(path)
     }
+    #[cfg(target_os = "linux")]
+    {
+        open_vscode_linux(path)
+    }
 }
 
 pub fn start_rd() -> std::result::Result<(), String> {
@@ -72,6 +76,10 @@ pub fn start_rd() -> std::result::Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         start_rd_macos()
+    }
+    #[cfg(target_os = "linux")]
+    {
+        start_rd_linux()
     }
 }
 
@@ -104,6 +112,10 @@ pub fn is_docker_running() -> Result<bool, String> {
     #[cfg(target_os = "macos")]
     {
         docker_info_macos()
+    }
+    #[cfg(target_os = "linux")]
+    {
+        docker_info_linux()
     }
 }
 
@@ -331,4 +343,43 @@ pub fn detect_target() -> Result<TargetInfo, String> {
         cores,
         target_voltage: None,
     })
+#[cfg(target_os = "linux")]
+fn linux_path_with_rd() -> String {
+    let home_dir = std::env::var("HOME").unwrap_or_default();
+    let current_path = std::env::var("PATH").unwrap_or_default();
+    format!(
+        "{}/.rd/bin:/usr/local/bin:/usr/bin:/bin:{}",
+        home_dir, current_path
+    )
+}
+
+#[cfg(target_os = "linux")]
+fn open_vscode_linux(path: &str) -> Result<std::process::Output, std::io::Error> {
+    std::process::Command::new("code").arg(path).output()
+}
+
+#[cfg(target_os = "linux")]
+fn start_rd_linux() -> std::result::Result<(), String> {
+    match std::process::Command::new("rdctl")
+        .arg("start")
+        .arg("--application.start-in-background")
+        .env("PATH", linux_path_with_rd())
+        .spawn()
+    {
+        Ok(_) => Ok(()),
+        Err(e) => Err(format!("Error: {}", e)),
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn docker_info_linux() -> Result<bool, String> {
+    let output = Command::new("docker")
+        .arg("info")
+        .arg("--format")
+        .arg("{{.ServerVersion}}")
+        .env("PATH", linux_path_with_rd())
+        .output()
+        .map_err(|e| format!("docker info failed: {}", e))?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    Ok(output.status.success() && !stdout.trim().is_empty())
 }

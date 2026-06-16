@@ -174,15 +174,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d301b3b94cb4b2f23d7917810addbbaff90738e0ca2be692bd027e70d7e0330c"
 
 [[package]]
-name = "arbitrary"
-version = "1.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3d036a3c4ab069c7b410a2ce876bd74808d2d0888a82667669f8e783a898bf1"
-dependencies = [
- "derive_arbitrary",
-]
-
-[[package]]
 name = "arboard"
 version = "3.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1578,6 +1569,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "debugid"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bef552e6f588e446098f6ba40d89ac146c8c7b64aade83c051ee00bb5d2bc18d"
+dependencies = [
+ "uuid",
+]
+
+[[package]]
 name = "defmt-decoder"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1653,17 +1653,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ececcb659e7ba858fb4f10388c250a7252eb0a27373f1a72b8748afdd248e587"
 dependencies = [
  "powerfmt",
-]
-
-[[package]]
-name = "derive_arbitrary"
-version = "1.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e567bd82dcff979e4b03460c307b3cdc9e96fde3d73bed1496d2bc75d9dd62a"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.114",
 ]
 
 [[package]]
@@ -2795,6 +2784,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c31b6d751ae2c7f11320402d34e41349dd1016f8d5d45e48c4312bc8625af50c"
 dependencies = [
  "byteorder",
+]
+
+[[package]]
+name = "fxprof-processed-profile"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "25234f20a3ec0a962a61770cfe39ecf03cb529a6e474ad8cff025ed497eda557"
+dependencies = [
+ "bitflags 2.10.0",
+ "debugid",
+ "rustc-hash 2.1.2",
+ "serde",
+ "serde_derive",
+ "serde_json",
 ]
 
 [[package]]
@@ -5080,6 +5083,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "object"
+version = "0.39.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e5a6c098c7a3b6547378093f5cc30bc54fd361ce711e05293a5cc589562739b"
+dependencies = [
+ "flate2",
+ "memchr",
+ "ruzstd",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.21.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5685,7 +5699,6 @@ dependencies = [
  "cobs 0.5.0",
  "docsplay",
  "dunce",
- "espflash",
  "flate2",
  "futures-lite",
  "hidapi",
@@ -5693,7 +5706,7 @@ dependencies = [
  "itertools 0.14.0",
  "jep106",
  "nusb",
- "object 0.38.1",
+ "object 0.39.1",
  "parking_lot",
  "probe-rs-target",
  "rmp-serde",
@@ -5715,7 +5728,7 @@ dependencies = [
  "bitfield",
  "gimli 0.33.0",
  "itertools 0.14.0",
- "object 0.38.1",
+ "object 0.39.1",
  "parse_int",
  "probe-rs",
  "probe-rs-target",
@@ -5723,6 +5736,23 @@ dependencies = [
  "thiserror 2.0.18",
  "tracing",
  "typed-path",
+]
+
+[[package]]
+name = "probe-rs-espressif"
+version = "0.31.0"
+dependencies = [
+ "bincode",
+ "bitvec",
+ "docsplay",
+ "espflash",
+ "nusb",
+ "probe-rs",
+ "probe-rs-target",
+ "serde",
+ "serde_yaml",
+ "thiserror 2.0.18",
+ "tracing",
 ]
 
 [[package]]
@@ -5738,10 +5768,12 @@ name = "probe-rs-target"
 version = "0.31.0"
 dependencies = [
  "base64",
+ "bincode",
  "indexmap",
  "jep106",
  "serde",
  "serde_with",
+ "serde_yaml",
 ]
 
 [[package]]
@@ -5759,6 +5791,7 @@ dependencies = [
  "clap",
  "clap_complete",
  "colored 3.1.1",
+ "debugid",
  "defmt-decoder",
  "directories",
  "docsplay",
@@ -5766,7 +5799,9 @@ dependencies = [
  "espflash",
  "fastrand",
  "figment",
+ "flate2",
  "futures-util",
+ "fxprof-processed-profile",
  "gdbstub",
  "git-version",
  "ihex",
@@ -5778,7 +5813,7 @@ dependencies = [
  "libtest-mimic",
  "linkme",
  "num-traits",
- "object 0.38.1",
+ "object 0.39.1",
  "parking_lot",
  "parse_int",
  "postcard",
@@ -5786,6 +5821,7 @@ dependencies = [
  "postcard-schema",
  "probe-rs",
  "probe-rs-debug",
+ "probe-rs-espressif",
  "probe-rs-mi",
  "probe-rs-target",
  "ratatui",
@@ -5796,9 +5832,7 @@ dependencies = [
  "scroll",
  "serde",
  "serde_json",
- "serde_yaml",
  "sha2",
- "signal-hook",
  "svd-parser",
  "svg",
  "termtree",
@@ -5812,6 +5846,7 @@ dependencies = [
  "tracing-subscriber",
  "typed-path",
  "urlencoding",
+ "uuid",
  "zip",
 ]
 
@@ -7244,9 +7279,9 @@ dependencies = [
 
 [[package]]
 name = "termtree"
-version = "0.5.1"
+version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f50febec83f5ee1df3015341d8bd429f2d1cc62bcba7ea2076759d315084683"
+checksum = "d4d1330fe7f7f872cd05165130b10602d667b205fd85be09be2814b115d4ced9"
 
 [[package]]
 name = "textwrap"
@@ -7345,6 +7380,7 @@ checksum = "743bd48c283afc0388f9b8827b976905fb217ad9e647fae3a379a9283c4def2c"
 dependencies = [
  "deranged",
  "itoa",
+ "js-sys",
  "libc",
  "num-conv",
  "num_threads",
@@ -9010,16 +9046,16 @@ dependencies = [
 
 [[package]]
 name = "zip"
-version = "6.0.0"
+version = "8.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eb2a05c7c36fde6c09b08576c9f7fb4cda705990f73b58fe011abf7dfb24168b"
+checksum = "2d04a6b5381502aa6087c94c669499eb1602eb9c5e8198e534de571f7154809b"
 dependencies = [
- "arbitrary",
  "crc32fast",
  "flate2",
  "indexmap",
  "memchr",
  "time",
+ "typed-path",
  "zopfli",
 ]
 

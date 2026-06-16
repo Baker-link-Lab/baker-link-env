@@ -25,6 +25,7 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 arboard = "3"
 probe-rs = { path = "external/probe-rs/probe-rs" }
 probe-rs-tools = { path = "external/probe-rs/probe-rs-tools" }
+probe-rs-espressif = { path = "external/probe-rs/probe-rs-espressif" }
 tokio = { version = "1", features = ["rt", "time", "sync"] }
 tokio-util = "0.7"
 time = "0.3"

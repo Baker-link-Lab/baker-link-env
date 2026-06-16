@@ -22,6 +22,8 @@ pub fn dap_server() -> &'static Mutex<cmd::ProbeRsDapServer> {
 }
 
 fn main() {
+    probe_rs_espressif::register_plugin();
+
     let mut logger = env_logger::Builder::new();
     if std::env::var("RUST_LOG").is_ok() {
         logger.parse_default_env();
