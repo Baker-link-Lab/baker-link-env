@@ -464,6 +464,7 @@ dependencies = [
  "log",
  "open",
  "probe-rs",
+ "probe-rs-espressif",
  "probe-rs-tools",
  "rfd 0.14.1",
  "serde",

@@ -1,5 +1,6 @@
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
+use std::net::IpAddr;
 use std::process::Command;
 use std::thread;
 
@@ -22,6 +23,7 @@ const ZSH_PROFILE: &str = ".zshrc";
 #[derive(serde::Deserialize, serde::Serialize)]
 pub struct ProbeRsDapServer {
     pub port: String,
+    pub ip: String,
     #[serde(skip)]
     shutdown: Option<CancellationToken>,
     #[serde(skip)]
@@ -46,6 +48,7 @@ impl Default for ProbeRsDapServer {
     fn default() -> Self {
         Self {
             port: 50001.to_string(),
+            ip: "127.0.0.1".to_string(),
             shutdown: None,
             handle: None,
             status: DapServerStatus::Stopped,
@@ -125,11 +128,12 @@ impl ProbeRsDapServer {
             return Ok(());
         }
         let port = self.parse_port()?;
+        let ip = self.parse_ip()?;
         let shutdown = CancellationToken::new();
         let shutdown_task = shutdown.clone();
         let log_tx = tx.clone();
 
-        let handle = spawn_dap_server_thread(port, shutdown_task, log_tx);
+        let handle = spawn_dap_server_thread(port, ip, shutdown_task, log_tx);
 
         self.shutdown = Some(shutdown);
         self.handle = Some(handle);
@@ -159,10 +163,17 @@ impl ProbeRsDapServer {
             .parse::<u16>()
             .map_err(|_| "Invalid port number".to_string())
     }
+
+    fn parse_ip(&self) -> Result<IpAddr, String> {
+        self.ip
+            .parse::<IpAddr>()
+            .map_err(|_| "Invalid IP address".to_string())
+    }
 }
 
 fn spawn_dap_server_thread(
     port: u16,
+    ip: IpAddr,
     shutdown_task: CancellationToken,
     log_tx: std::sync::mpsc::Sender<String>,
 ) -> std::thread::JoinHandle<()> {
@@ -177,8 +188,9 @@ fn spawn_dap_server_thread(
         };
 
         let offset = UtcOffset::current_local_offset().unwrap_or(UtcOffset::UTC);
-        let result = runtime.block_on(dap_server::run_with_shutdown_on_port(
+        let result = runtime.block_on(dap_server::run_with_shutdown_on_addr(
             port,
+            ip,
             false,
             None,
             offset,
@@ -343,6 +355,8 @@ pub fn detect_target() -> Result<TargetInfo, String> {
         cores,
         target_voltage: None,
     })
+}
+
 #[cfg(target_os = "linux")]
 fn linux_path_with_rd() -> String {
     let home_dir = std::env::var("HOME").unwrap_or_default();

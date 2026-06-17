@@ -21,6 +21,7 @@ pub fn App() -> Element {
     let mut template_ref_value = use_signal(|| String::new());
     let mut vscode_open_enabled = use_signal(|| true);
     let mut dap_port = use_signal(|| "50001".to_string());
+    let mut dap_ip = use_signal(|| "127.0.0.1".to_string());
     let mut dap_running = use_signal(|| false);
     let mut logs = use_signal(Vec::<String>::new);
     let mut docker_status = use_signal(|| "Docker: ?".to_string());
@@ -54,8 +55,8 @@ pub fn App() -> Element {
                             Ok(()) => {
                                 dap_running.set(true);
                                 crate::log_info(format!(
-                                    "probe-rs DAP Server started on port {}",
-                                    server.port
+                                    "probe-rs DAP Server started on {}:{}",
+                                    server.ip, server.port
                                 ));
                             }
                             Err(e) => {
@@ -533,10 +534,24 @@ pub fn App() -> Element {
 
                             div { class: "flex flex-wrap items-center gap-2",
                                 label { class: "text-[13px] font-semibold text-bkl-text-muted",
+                                    "IP"
+                                }
+                                input {
+                                    class: "input min-w-[140px] w-[140px]",
+                                    value: "{dap_ip}",
+                                    oninput: move |ev| {
+                                        let value = ev.value();
+                                        dap_ip.set(value.clone());
+                                        if let Ok(mut server) = crate::dap_server().lock() {
+                                            server.ip = value;
+                                        }
+                                    },
+                                }
+                                label { class: "text-[13px] font-semibold text-bkl-text-muted",
                                     "Port"
                                 }
                                 input {
-                                    class: "input min-w-[100px] w-[100px]",
+                                    class: "input min-w-[80px] w-[80px]",
                                     value: "{dap_port}",
                                     oninput: move |ev| {
                                         let value = ev.value();
