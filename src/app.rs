@@ -224,7 +224,7 @@ pub fn App() -> Element {
 
     rsx! {
         document::Title { "{parameter::APP_NAME}" }
-        document::Stylesheet { href: asset!("/assets/tailwind.css") }
+        document::Stylesheet { href: "/assets/tailwind.css" }
 
         div { class: "app-shell",
 

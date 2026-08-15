@@ -1,6 +1,6 @@
+use std::net::IpAddr;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
-use std::net::IpAddr;
 use std::process::Command;
 use std::thread;
 
@@ -128,12 +128,12 @@ impl ProbeRsDapServer {
             return Ok(());
         }
         let port = self.parse_port()?;
-        let ip = self.parse_ip()?;
+        self.parse_ip()?;
         let shutdown = CancellationToken::new();
         let shutdown_task = shutdown.clone();
         let log_tx = tx.clone();
 
-        let handle = spawn_dap_server_thread(port, ip, shutdown_task, log_tx);
+        let handle = spawn_dap_server_thread(port, shutdown_task, log_tx);
 
         self.shutdown = Some(shutdown);
         self.handle = Some(handle);
@@ -173,7 +173,6 @@ impl ProbeRsDapServer {
 
 fn spawn_dap_server_thread(
     port: u16,
-    ip: IpAddr,
     shutdown_task: CancellationToken,
     log_tx: std::sync::mpsc::Sender<String>,
 ) -> std::thread::JoinHandle<()> {
@@ -188,9 +187,8 @@ fn spawn_dap_server_thread(
         };
 
         let offset = UtcOffset::current_local_offset().unwrap_or(UtcOffset::UTC);
-        let result = runtime.block_on(dap_server::run_with_shutdown_on_addr(
+        let result = runtime.block_on(dap_server::run_with_shutdown_on_port(
             port,
-            ip,
             false,
             None,
             offset,
