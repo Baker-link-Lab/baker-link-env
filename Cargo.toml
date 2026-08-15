@@ -33,3 +33,12 @@ futures-util = "0.3"
 [features]
 default = ["desktop"]
 desktop = ["dioxus/desktop"]
+
+[profile.dev]
+opt-level = 1          # Minimal optimization but faster compilation
+incremental = true
+codegen-units = 256    # More parallel codegen units for faster builds
+
+[profile.release]
+lto = true             # Link-time optimization (slower build, faster binary)
+codegen-units = 1      # Single-threaded for optimization
