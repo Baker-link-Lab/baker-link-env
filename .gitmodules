@@ -1,3 +1,6 @@
 [submodule "external/probe-rs"]
 	path = external/probe-rs
 	url = https://github.com/Baker-link-Lab/probe-rs.git
+[submodule "template/bakerlink_tutorial_template"]
+	path = template/bakerlink_tutorial_template
+	url = https://github.com/Baker-link-Lab/bakerlink_tutorial_template.git
