@@ -4,8 +4,6 @@ use std::time::Duration;
 
 use crate::{cmd, helpers, logger, parameter, settings};
 
-const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
-
 /// Actions dispatched from UI buttons into a single coroutine.
 enum AppAction {
     StartDap(settings::ServerConfig),
@@ -299,7 +297,6 @@ pub fn App() -> Element {
 
     rsx! {
         document::Title { "{parameter::APP_NAME}" }
-        document::Stylesheet { href: TAILWIND_CSS }
 
         div { class: "app-shell",
 
