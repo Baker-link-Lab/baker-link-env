@@ -62,7 +62,7 @@ src/
   parameter.rs  — Constants (APP_NAME, template URL) + build_version_label() using GIT_HASH env var
   helpers.rs    — CSS class helpers, window icon loading, base64 logo data URI
 assets/
-  main.css      — Dark theme; CSS variables prefixed --bkl- (e.g. --bkl-orange, --bkl-green)
+  tailwind.css  — Compiled Tailwind CSS bundled with the application
 external/
   probe-rs/     — Git submodule; provides probe_rs_tools::cmd::dap_server::run_with_shutdown_on_port
 ```
@@ -73,7 +73,9 @@ external/
 
 **Globals**: `DAP_SERVER` and `DISPLAY_BUFFER` are `OnceLock<Mutex<T>>` singletons in `main.rs` / `logger.rs`. Access via `crate::dap_server()` and `crate::display_buffer()`.
 
-**DAP server lifecycle**: `ProbeRsDapServer::start()` spawns a thread with its own `current_thread` Tokio runtime. Shutdown uses `CancellationToken` — always cancel via `stop()`, never kill the thread directly.
+**DAP server lifecycle**: `ProbeRsDapServer::start()` runs DAP on port 50001 and authenticated ELF upload on port 50002. Shutdown uses `CancellationToken` and remains in `Stopping` until both listener threads have joined.
+
+**Debug artifacts**: The Dev Container pre-launch task uploads ELF files to the host cache. DAP configurations use `bakerlink://<project>/<profile>`; do not add host path mappings or `LOCAL_WORKSPACE_FOLDER`.
 
 **Platform branching**: Use `#[cfg(target_os = "windows")]` / `#[cfg(target_os = "macos")]` / `#[cfg(target_os = "linux")]`. Windows external commands need `CREATE_NO_WINDOW` flag; macOS needs to source `~/.zshrc` to get PATH with `rdctl`.
 

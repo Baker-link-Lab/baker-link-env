@@ -58,7 +58,7 @@ flowchart LR
 | **Project creation** | One-click project scaffolding from a Git template via `cargo-generate` |
 | **VS Code integration** | Automatically opens the new project in VS Code |
 | **probe-rs DAP Server** | Start/stop a local DAP server with configurable port |
-| **Docker path mapping** | Maps container paths to host paths in the DAP server for seamless debugging |
+| **ELF transfer** | Securely transfers the container-built ELF to the host before each debug session |
 | **Docker management** | Detects Rancher Desktop status and offers to start it |
 | **Project history** | Quick access to recent projects from the UI and system tray |
 | **System tray** | Runs as a tray-resident app — control DAP server and open projects without opening the window |
@@ -74,7 +74,7 @@ flowchart LR
 
 ## Install
 
-Installers for Windows and macOS are available on the [Releases](https://github.com/Baker-link-Lab/baker-link-env/releases) page.
+Installers for Windows, macOS, and Ubuntu are available on the [Releases](https://github.com/Baker-link-Lab/baker-link-env/releases) page.
 
 ### macOS: "Damaged App" Error
 
@@ -96,8 +96,20 @@ xattr -d com.apple.quarantine "/Applications/Baker link. Env.app"
 
 ### 2. Start the DAP Server
 
-1. Set the port (default: `50001`) in the **probe-rs DAP Server** panel.
-2. Click **Run**. The server starts and listens for VS Code debugger connections.
+1. Optionally change **Bind IP**, **DAP Port**, or **ELF Upload Port**. The defaults are `0.0.0.0`, `50001`, and `50002`.
+2. Click **Run**. The app saves these values and starts both services.
+3. Reopen the generated project in its Dev Container.
+4. Press `F5`. The pre-launch task builds and uploads the ELF before probe-rs starts debugging.
+
+No host path mapping or `LOCAL_WORKSPACE_FOLDER` environment variable is required.
+
+To run only the DAP and ELF upload services without the desktop window, use:
+
+```sh
+cargo run -- --headless
+```
+
+Headless mode uses the IP and ports last saved by the desktop app. Press `Ctrl+C` to stop both services gracefully.
 
 ## License
 

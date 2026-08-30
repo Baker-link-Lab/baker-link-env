@@ -13,7 +13,6 @@ dist/
 # Tailwind CSS — standalone CLI binary & compiled output
 tailwindcss
 tailwindcss.exe
-assets/tailwind.css
 
 # Node (not used, but just in case)
 node_modules/

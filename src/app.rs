@@ -4,9 +4,11 @@ use std::time::Duration;
 
 use crate::{cmd, helpers, logger, parameter, settings};
 
+const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
+
 /// Actions dispatched from UI buttons into a single coroutine.
 enum AppAction {
-    StartDap,
+    StartDap(settings::ServerConfig),
     StopDap,
     StartDocker,
     OpenProject(String),
@@ -15,35 +17,60 @@ enum AppAction {
 
 #[component]
 pub fn App() -> Element {
+    let server_config = settings::server_config().unwrap_or_else(|error| {
+        crate::log_error(format!("Failed to load server settings: {error}"));
+        settings::ServerConfig::default()
+    });
     // State signals
     let mut project_name = use_signal(|| "myproject".to_string());
     let mut template_ref_is_tag = use_signal(|| false); // false = branch, true = tag
-    let mut template_ref_value = use_signal(|| String::new());
+    let mut template_ref_value = use_signal(String::new);
     let mut vscode_open_enabled = use_signal(|| true);
-    let mut dap_port = use_signal(|| "50001".to_string());
-    let mut dap_ip = use_signal(|| "127.0.0.1".to_string());
+    let mut dap_ip = use_signal(|| server_config.bind_ip);
+    let mut dap_port = use_signal(|| server_config.dap_port);
+    let mut upload_port = use_signal(|| server_config.upload_port);
     let mut dap_running = use_signal(|| false);
+    let mut dap_stopping = use_signal(|| false);
     let mut logs = use_signal(Vec::<String>::new);
     let mut docker_status = use_signal(|| "Docker: ?".to_string());
     let mut last_error = use_signal(|| Option::<String>::None);
     let mut docker_prompt_dismissed = use_signal(|| false);
-    let mut history = use_signal(settings::load_history);
+    let mut history = use_signal(|| {
+        settings::load_history().unwrap_or_else(|error| {
+            crate::log_error(format!("Failed to load project history: {error}"));
+            Vec::new()
+        })
+    });
     let mut show_history = use_signal(|| false);
-    let mut show_splash = use_signal(settings::should_show_splash);
+    let mut show_splash = use_signal(|| {
+        settings::should_show_splash().unwrap_or_else(|error| {
+            crate::log_error(format!("Failed to load splash state: {error}"));
+            false
+        })
+    });
     let mut show_reset_confirm = use_signal(|| false);
     let mut show_version_opts = use_signal(|| false);
-    let mut probe_name = use_signal(|| String::new());
-    let mut chip_name = use_signal(|| String::new());
-    let mut chip_cores = use_signal(|| String::new());
-    let mut chip_voltage = use_signal(|| String::new());
+    let mut probe_name = use_signal(String::new);
+    let mut chip_name = use_signal(String::new);
+    let mut chip_cores = use_signal(String::new);
+    let mut chip_voltage = use_signal(String::new);
     let mut detecting = use_signal(|| false);
 
     // Action dispatcher coroutine — single place for all side-effects
     let actions = use_coroutine(move |mut rx: UnboundedReceiver<AppAction>| async move {
         while let Some(action) = rx.next().await {
             match action {
-                AppAction::StartDap => {
+                AppAction::StartDap(config) => {
+                    if let Err(error) = settings::save_server_config(&config) {
+                        let message = format!("Failed to save server settings: {error}");
+                        crate::log_error(message.clone());
+                        last_error.set(Some(message));
+                        continue;
+                    }
                     if let Ok(mut server) = crate::dap_server().lock() {
+                        server.ip = config.bind_ip.clone();
+                        server.port = config.dap_port.clone();
+                        server.upload_port = config.upload_port.clone();
                         let tx = {
                             if let Ok(buffer) = crate::display_buffer().lock() {
                                 buffer.sender()
@@ -53,7 +80,19 @@ pub fn App() -> Element {
                         };
                         match server.start(tx) {
                             Ok(()) => {
+                                for entry in history.read().iter() {
+                                    if let Err(error) = cmd::prepare_project_connection(
+                                        std::path::Path::new(&entry.path),
+                                        &config,
+                                    ) {
+                                        crate::log_info(format!(
+                                            "Skipped connection refresh for {}: {error}",
+                                            entry.name
+                                        ));
+                                    }
+                                }
                                 dap_running.set(true);
+                                dap_stopping.set(false);
                                 crate::log_info(format!(
                                     "probe-rs DAP Server started on {}:{}",
                                     server.ip, server.port
@@ -70,7 +109,8 @@ pub fn App() -> Element {
                     if let Ok(mut server) = crate::dap_server().lock() {
                         if server.stop() {
                             dap_running.set(false);
-                            crate::log_info("probe-rs DAP Server stopped");
+                            dap_stopping.set(true);
+                            crate::log_info("Stopping probe-rs DAP and ELF upload servers...");
                         }
                     }
                 }
@@ -92,6 +132,25 @@ pub fn App() -> Element {
                 }
                 AppAction::OpenProject(path) => {
                     if std::path::Path::new(&path).exists() {
+                        let config = match settings::server_config() {
+                            Ok(config) => config,
+                            Err(error) => {
+                                crate::log_error(format!(
+                                    "Failed to load server settings: {error}"
+                                ));
+                                last_error.set(Some(error.to_string()));
+                                continue;
+                            }
+                        };
+                        if let Err(error) =
+                            cmd::prepare_project_connection(std::path::Path::new(&path), &config)
+                        {
+                            crate::log_error(format!(
+                                "Failed to prepare debug connection: {error}"
+                            ));
+                            last_error.set(Some(error.to_string()));
+                            continue;
+                        }
                         // Start Rancher Desktop in background (non-blocking)
                         std::thread::spawn(|| {
                             let _ = cmd::start_rd();
@@ -111,7 +170,11 @@ pub fn App() -> Element {
                         let mut hist = history.read().clone();
                         if let Some(pos) = hist.iter().position(|e| e.path == path) {
                             hist.remove(pos);
-                            settings::save_history(&hist);
+                            if let Err(error) = settings::save_history(&hist) {
+                                crate::log_error(format!(
+                                    "Failed to save project history: {error}"
+                                ));
+                            }
                             history.set(hist);
                         }
                     }
@@ -176,7 +239,9 @@ pub fn App() -> Element {
     // Auto-dismiss splash after 3 seconds (re-triggers on reset)
     use_effect(move || {
         if *show_splash.read() {
-            settings::mark_splash_shown();
+            if let Err(error) = settings::mark_splash_shown() {
+                crate::log_error(format!("Failed to save splash state: {error}"));
+            }
             spawn(async move {
                 tokio::time::sleep(Duration::from_millis(3000)).await;
                 show_splash.set(false);
@@ -188,6 +253,16 @@ pub fn App() -> Element {
     use_future(move || async move {
         loop {
             tokio::time::sleep(Duration::from_millis(300)).await;
+            if let Ok(mut server) = crate::dap_server().lock() {
+                let status = server.refresh_status();
+                if status == cmd::DapServerStatus::Stopped && *dap_stopping.read() {
+                    dap_stopping.set(false);
+                    crate::log_info("probe-rs DAP and ELF upload servers stopped");
+                }
+                if status == cmd::DapServerStatus::Stopped && *dap_running.read() {
+                    dap_running.set(false);
+                }
+            }
             if let Ok(mut buffer) = crate::display_buffer().lock() {
                 buffer.channel_recv();
                 let latest = buffer.buffer.clone();
@@ -224,7 +299,7 @@ pub fn App() -> Element {
 
     rsx! {
         document::Title { "{parameter::APP_NAME}" }
-        document::Stylesheet { href: "/assets/tailwind.css" }
+        document::Stylesheet { href: TAILWIND_CSS }
 
         div { class: "app-shell",
 
@@ -337,7 +412,8 @@ pub fn App() -> Element {
                                             let joined = std::path::Path::new(&path_str)
                                                 .join(project_name.read().as_str());
                                             let joined_str = joined.to_string_lossy().to_string();
-                                            if !joined.exists() {
+                                            let mut project_ready = joined.exists();
+                                            if !project_ready {
                                                 let ref_val = template_ref_value.read().trim().to_string();
                                                 let ref_opt = if ref_val.is_empty() { None } else { Some(ref_val) };
                                                 let (branch, tag) = if *template_ref_is_tag.read() {
@@ -352,6 +428,7 @@ pub fn App() -> Element {
                                                     tag,
                                                 ) {
                                                     Ok(_) => {
+                                                        project_ready = true;
                                                         crate::log_info(format!("Project {} generated", joined_str));
                                                         let mut h = history.read().clone();
                                                         if !h.iter().any(|e| e.path == joined_str) {
@@ -362,7 +439,9 @@ pub fn App() -> Element {
                                                                 name: project_name.read().clone(),
                                                                 path: joined_str.clone(),
                                                             });
-                                                            settings::save_history(&h);
+                                                            if let Err(error) = settings::save_history(&h) {
+                                                                crate::log_error(format!("Failed to save project history: {error}"));
+                                                            }
                                                             history.set(h);
                                                         }
                                                     }
@@ -373,7 +452,7 @@ pub fn App() -> Element {
                                             } else {
                                                 crate::log_info(format!("Project {} already exists", joined_str));
                                             }
-                                            if *vscode_open_enabled.read() {
+                                            if project_ready && *vscode_open_enabled.read() {
                                                 let _ = cmd::start_rd();
                                                 crate::log_info(format!("Visual Studio Code opened: {}", joined_str));
                                                 if let Err(e) = cmd::open_vscode(&joined_str) {
@@ -533,49 +612,53 @@ pub fn App() -> Element {
                             }
 
                             div { class: "flex flex-wrap items-center gap-2",
-                                label { class: "text-[13px] font-semibold text-bkl-text-muted",
-                                    "IP"
+                                label { class: "text-[11px] font-semibold text-bkl-text-muted",
+                                    "Bind IP"
                                 }
                                 input {
-                                    class: "input min-w-[140px] w-[140px]",
+                                    class: "input min-w-[120px] w-[120px]",
                                     value: "{dap_ip}",
-                                    oninput: move |ev| {
-                                        let value = ev.value();
-                                        dap_ip.set(value.clone());
-                                        if let Ok(mut server) = crate::dap_server().lock() {
-                                            server.ip = value;
-                                        }
-                                    },
+                                    disabled: *dap_running.read() || *dap_stopping.read(),
+                                    oninput: move |event| dap_ip.set(event.value()),
                                 }
-                                label { class: "text-[13px] font-semibold text-bkl-text-muted",
-                                    "Port"
+                                label { class: "text-[11px] font-semibold text-bkl-text-muted",
+                                    "DAP"
                                 }
                                 input {
-                                    class: "input min-w-[80px] w-[80px]",
+                                    class: "input min-w-[76px] w-[76px]",
                                     value: "{dap_port}",
-                                    oninput: move |ev| {
-                                        let value = ev.value();
-                                        dap_port.set(value.clone());
-                                        if let Ok(mut server) = crate::dap_server().lock() {
-                                            server.port = value;
-                                        }
-                                    },
+                                    disabled: *dap_running.read() || *dap_stopping.read(),
+                                    oninput: move |event| dap_port.set(event.value()),
+                                }
+                                label { class: "text-[11px] font-semibold text-bkl-text-muted",
+                                    "Upload"
+                                }
+                                input {
+                                    class: "input min-w-[76px] w-[76px]",
+                                    value: "{upload_port}",
+                                    disabled: *dap_running.read() || *dap_stopping.read(),
+                                    oninput: move |event| upload_port.set(event.value()),
                                 }
                                 button {
                                     class: "btn-primary",
-                                    disabled: *dap_running.read(),
-                                    onclick: move |_| actions.send(AppAction::StartDap),
+                                    disabled: *dap_running.read() || *dap_stopping.read(),
+                                    onclick: move |_| actions.send(AppAction::StartDap(settings::ServerConfig {
+                                        bind_ip: dap_ip.read().clone(),
+                                        connect_host: server_config.connect_host.clone(),
+                                        dap_port: dap_port.read().clone(),
+                                        upload_port: upload_port.read().clone(),
+                                    })),
                                     "Run"
                                 }
                                 button {
                                     class: "btn-danger",
                                     disabled: !*dap_running.read(),
                                     onclick: move |_| actions.send(AppAction::StopDap),
-                                    "Stop"
+                                    if *dap_stopping.read() { "Stopping..." } else { "Stop" }
                                 }
                             }
                             p { class: "mt-3 text-[11px] text-bkl-text-faint",
-                                "Docker path mapping: set pathMappings in launch.json (remoteRoot / localRoot)."
+                                "Dev Container connects through host.docker.internal. Changes apply on Run."
                             }
                         }
                     }
@@ -682,10 +765,17 @@ pub fn App() -> Element {
                             button {
                                 class: "btn-danger",
                                 onclick: move |_| {
-                                    settings::reset_all();
-                                    history.set(vec![]);
-                                    show_reset_confirm.set(false);
-                                    show_splash.set(true);
+                                    match settings::reset_all() {
+                                        Ok(()) => {
+                                            history.set(vec![]);
+                                            show_reset_confirm.set(false);
+                                            show_splash.set(true);
+                                        }
+                                        Err(error) => {
+                                            crate::log_error(format!("Failed to reset settings: {error}"));
+                                            last_error.set(Some(error.to_string()));
+                                        }
+                                    }
                                 },
                                 "Reset"
                             }

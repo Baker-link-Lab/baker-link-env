@@ -1,0 +1,14 @@
+{
+    "files.watcherExclude": {
+        "**/target/**": true,
+        "**/desktop-dev/**": true,
+        "**/dist/**": true,
+        "**/external/probe-rs/target/**": true
+    },
+    "search.exclude": {
+        "**/target": true,
+        "**/desktop-dev": true,
+        "**/dist": true,
+        "**/external/probe-rs/target": true
+    }
+}

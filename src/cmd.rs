@@ -1,4 +1,4 @@
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr, TcpListener};
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 use std::process::Command;
@@ -23,34 +23,36 @@ const ZSH_PROFILE: &str = ".zshrc";
 #[derive(serde::Deserialize, serde::Serialize)]
 pub struct ProbeRsDapServer {
     pub port: String,
+    pub upload_port: String,
     pub ip: String,
     #[serde(skip)]
     shutdown: Option<CancellationToken>,
     #[serde(skip)]
     handle: Option<std::thread::JoinHandle<()>>,
     #[serde(skip)]
+    completion: Option<std::sync::mpsc::Receiver<()>>,
+    #[serde(skip)]
     pub status: DapServerStatus,
 }
 
-#[derive(PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum DapServerStatus {
+    Starting,
     Running(u16),
+    Stopping,
+    #[default]
     Stopped,
-}
-
-impl Default for DapServerStatus {
-    fn default() -> Self {
-        DapServerStatus::Stopped
-    }
 }
 
 impl Default for ProbeRsDapServer {
     fn default() -> Self {
         Self {
             port: 50001.to_string(),
-            ip: "127.0.0.1".to_string(),
+            upload_port: crate::upload::DEFAULT_UPLOAD_PORT.to_string(),
+            ip: "0.0.0.0".to_string(),
             shutdown: None,
             handle: None,
+            completion: None,
             status: DapServerStatus::Stopped,
         }
     }
@@ -92,7 +94,8 @@ pub fn generate_project(
     branch: Option<String>,
     tag: Option<String>,
 ) -> anyhow::Result<std::path::PathBuf> {
-    std::env::set_current_dir(path).unwrap();
+    let original_dir = std::env::current_dir()?;
+    std::env::set_current_dir(path)?;
     let generate_args = cargo_generate::GenerateArgs {
         name: Some(name.to_string()),
         vcs: Some(cargo_generate::Vcs::Git),
@@ -104,7 +107,28 @@ pub fn generate_project(
         },
         ..cargo_generate::GenerateArgs::default()
     };
-    cargo_generate::generate(generate_args)
+    let result = cargo_generate::generate(generate_args);
+    let restore_result = std::env::set_current_dir(original_dir);
+    let project_path = result?;
+    restore_result?;
+    let config = crate::settings::server_config()?;
+    prepare_project_connection(&project_path, &config)?;
+    Ok(project_path)
+}
+
+pub fn prepare_project_connection(
+    path: &std::path::Path,
+    config: &crate::settings::ServerConfig,
+) -> anyhow::Result<()> {
+    let dap_port = config.dap_port.parse::<u16>()?;
+    let upload_port = config.upload_port.parse::<u16>()?;
+    crate::upload::write_connection_config(
+        path,
+        &crate::settings::upload_token()?,
+        &config.connect_host,
+        dap_port,
+        upload_port,
+    )
 }
 
 pub fn is_docker_running() -> Result<bool, String> {
@@ -124,44 +148,90 @@ pub fn is_docker_running() -> Result<bool, String> {
 
 impl ProbeRsDapServer {
     pub fn start(&mut self, tx: std::sync::mpsc::Sender<String>) -> Result<(), String> {
+        self.refresh_status();
         if self.status != DapServerStatus::Stopped {
-            return Ok(());
+            return Err(format!("DAP server is currently {:?}", self.status));
         }
         let port = self.parse_port()?;
-        self.parse_ip()?;
+        let upload_port = self.parse_upload_port()?;
+        let ip = self.parse_ip()?;
+        let address = SocketAddr::new(ip, port);
+        let upload_address = SocketAddr::new(ip, upload_port);
+        if port == upload_port {
+            return Err("DAP port and ELF upload port must be different".to_string());
+        }
+        TcpListener::bind(address)
+            .map_err(|error| format!("DAP port {port} is unavailable: {error}"))?;
+        TcpListener::bind(upload_address)
+            .map_err(|error| format!("ELF upload port {upload_port} is unavailable: {error}"))?;
+
+        let artifact_root = crate::artifact::root_dir().map_err(|error| error.to_string())?;
+        std::env::set_var(crate::artifact::ARTIFACT_ROOT_ENV, &artifact_root);
+        let upload_token = crate::settings::upload_token().map_err(|error| error.to_string())?;
         let shutdown = CancellationToken::new();
         let shutdown_task = shutdown.clone();
         let log_tx = tx.clone();
+        let (completion_tx, completion_rx) = std::sync::mpsc::channel();
 
-        let handle = spawn_dap_server_thread(port, shutdown_task, log_tx);
+        self.status = DapServerStatus::Starting;
+        let handle = spawn_dap_server_thread(
+            address,
+            upload_address,
+            artifact_root,
+            upload_token,
+            shutdown_task,
+            log_tx,
+            completion_tx,
+        );
 
         self.shutdown = Some(shutdown);
         self.handle = Some(handle);
+        self.completion = Some(completion_rx);
         self.status = DapServerStatus::Running(port);
         Ok(())
     }
 
     pub fn stop(&mut self) -> bool {
-        if self.status == DapServerStatus::Stopped {
+        self.refresh_status();
+        if matches!(
+            self.status,
+            DapServerStatus::Stopped | DapServerStatus::Stopping
+        ) {
             return false;
         }
+        self.status = DapServerStatus::Stopping;
         if let Some(shutdown) = self.shutdown.take() {
             shutdown.cancel();
         }
-        if let Some(handle) = self.handle.take() {
-            // Detach the join to avoid blocking the UI thread while the server shuts down.
-            thread::spawn(move || {
-                let _ = handle.join();
-            });
-        }
-        self.status = DapServerStatus::Stopped;
         true
+    }
+
+    pub fn refresh_status(&mut self) -> DapServerStatus {
+        let completed = self
+            .completion
+            .as_ref()
+            .is_some_and(|receiver| receiver.try_recv().is_ok());
+        if completed {
+            if let Some(handle) = self.handle.take() {
+                let _ = handle.join();
+            }
+            self.completion = None;
+            self.shutdown = None;
+            self.status = DapServerStatus::Stopped;
+        }
+        self.status
     }
 
     fn parse_port(&self) -> Result<u16, String> {
         self.port
             .parse::<u16>()
             .map_err(|_| "Invalid port number".to_string())
+    }
+
+    fn parse_upload_port(&self) -> Result<u16, String> {
+        self.upload_port
+            .parse::<u16>()
+            .map_err(|_| "Invalid ELF upload port number".to_string())
     }
 
     fn parse_ip(&self) -> Result<IpAddr, String> {
@@ -172,27 +242,48 @@ impl ProbeRsDapServer {
 }
 
 fn spawn_dap_server_thread(
-    port: u16,
+    address: SocketAddr,
+    upload_address: SocketAddr,
+    artifact_root: std::path::PathBuf,
+    upload_token: String,
     shutdown_task: CancellationToken,
     log_tx: std::sync::mpsc::Sender<String>,
+    completion_tx: std::sync::mpsc::Sender<()>,
 ) -> std::thread::JoinHandle<()> {
     thread::spawn(move || {
         let shutdown_probe = shutdown_task.clone();
+        let upload_shutdown = shutdown_task.clone();
+        let upload_log = log_tx.clone();
+        let upload_handle = thread::spawn(move || {
+            if let Err(error) = crate::upload::run(
+                upload_address,
+                artifact_root,
+                upload_token,
+                upload_shutdown.clone(),
+                upload_log.clone(),
+            ) {
+                let _ = upload_log.send(format!("[ERROR] ELF upload server stopped: {error}"));
+                upload_shutdown.cancel();
+            }
+        });
         let runtime = match Builder::new_current_thread().enable_all().build() {
             Ok(runtime) => runtime,
             Err(error) => {
                 let _ = log_tx.send(format!("Failed to start runtime: {error}"));
+                shutdown_task.cancel();
+                let _ = upload_handle.join();
+                let _ = completion_tx.send(());
                 return;
             }
         };
 
         let offset = UtcOffset::current_local_offset().unwrap_or(UtcOffset::UTC);
-        let result = runtime.block_on(dap_server::run_with_shutdown_on_port(
-            port,
+        let result = runtime.block_on(dap_server::run_with_shutdown_on_addr(
+            address,
             false,
             None,
             offset,
-            shutdown_task,
+            shutdown_task.clone(),
         ));
 
         if let Err(error) = result {
@@ -202,6 +293,9 @@ fn spawn_dap_server_thread(
                 let _ = log_tx.send(format!("[ERROR] DAP server stopped: {error}"));
             }
         }
+        shutdown_task.cancel();
+        let _ = upload_handle.join();
+        let _ = completion_tx.send(());
     })
 }
 
@@ -293,9 +387,6 @@ fn docker_info_macos() -> Result<bool, String> {
 pub struct ProbeInfo {
     pub probe_type: String,
     pub identifier: String,
-    pub vendor_id: u16,
-    pub product_id: u16,
-    pub serial_number: Option<String>,
 }
 
 pub struct TargetInfo {
@@ -312,9 +403,6 @@ pub fn list_probes() -> Vec<ProbeInfo> {
         .map(|p| ProbeInfo {
             probe_type: p.probe_type(),
             identifier: p.identifier.clone(),
-            vendor_id: p.vendor_id,
-            product_id: p.product_id,
-            serial_number: p.serial_number.clone(),
         })
         .collect()
 }
@@ -327,9 +415,6 @@ pub fn detect_target() -> Result<TargetInfo, String> {
     let probe_info = ProbeInfo {
         probe_type: probe_info_raw.probe_type(),
         identifier: probe_info_raw.identifier.clone(),
-        vendor_id: probe_info_raw.vendor_id,
-        product_id: probe_info_raw.product_id,
-        serial_number: probe_info_raw.serial_number.clone(),
     };
 
     let probe = probe_info_raw
@@ -394,4 +479,58 @@ fn docker_info_linux() -> Result<bool, String> {
         .map_err(|e| format!("docker info failed: {}", e))?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     Ok(output.status.success() && !stdout.trim().is_empty())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    fn unused_port() -> u16 {
+        TcpListener::bind(("127.0.0.1", 0))
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port()
+    }
+
+    fn wait_until_stopped(server: &mut ProbeRsDapServer) {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while server.refresh_status() != DapServerStatus::Stopped {
+            assert!(Instant::now() < deadline, "DAP server did not stop in time");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    #[test]
+    fn stop_releases_ports_before_restart() {
+        let (log_tx, _log_rx) = std::sync::mpsc::channel();
+        let mut server = ProbeRsDapServer::default();
+        let dap_port = unused_port();
+        let upload_port = unused_port();
+        server.ip = "127.0.0.1".to_string();
+        server.port = dap_port.to_string();
+        server.upload_port = upload_port.to_string();
+
+        server.start(log_tx.clone()).unwrap();
+        assert!(server.stop());
+        wait_until_stopped(&mut server);
+        server.start(log_tx).unwrap();
+        let _active_connection = (0..50)
+            .find_map(
+                |_| match std::net::TcpStream::connect(("127.0.0.1", dap_port)) {
+                    Ok(stream) => Some(stream),
+                    Err(_) => {
+                        std::thread::sleep(Duration::from_millis(10));
+                        None
+                    }
+                },
+            )
+            .expect("DAP server did not accept connections");
+        assert!(server.stop());
+        wait_until_stopped(&mut server);
+
+        TcpListener::bind(("127.0.0.1", dap_port)).unwrap();
+        TcpListener::bind(("127.0.0.1", upload_port)).unwrap();
+    }
 }

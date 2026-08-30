@@ -1,15 +1,18 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
+mod artifact;
 mod cmd;
 mod helpers;
 mod logger;
 mod parameter;
 mod settings;
+mod upload;
 
 use dioxus::desktop::{Config, LogicalSize, WindowBuilder};
 use log::LevelFilter;
 use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
 
 const LOGO_PNG_BYTES: &[u8] = include_bytes!("../assets/baker-link-logo.png");
 
@@ -30,6 +33,19 @@ fn main() {
     }
     let _ = logger.try_init();
 
+    if let Err(error) = settings::validate() {
+        eprintln!("Failed to load settings: {error}");
+        std::process::exit(1);
+    }
+
+    if std::env::args().any(|argument| argument == "--headless") {
+        if let Err(error) = run_headless() {
+            eprintln!("{error}");
+            std::process::exit(1);
+        }
+        return;
+    }
+
     let icon = helpers::load_window_icon();
     dioxus::LaunchBuilder::desktop()
         .with_cfg(
@@ -41,4 +57,62 @@ fn main() {
             ),
         )
         .launch(app::App);
+}
+
+fn run_headless() -> Result<(), String> {
+    let config = settings::server_config().map_err(|error| error.to_string())?;
+    let (log_tx, log_rx) = std::sync::mpsc::channel();
+    let (shutdown_tx, shutdown_rx) = std::sync::mpsc::channel();
+    ctrlc::set_handler(move || {
+        let _ = shutdown_tx.send(());
+    })
+    .map_err(|error| format!("Failed to install shutdown handler: {error}"))?;
+
+    {
+        let mut server = dap_server()
+            .lock()
+            .map_err(|_| "DAP server lock is poisoned".to_string())?;
+        server.ip = config.bind_ip.clone();
+        server.port = config.dap_port.clone();
+        server.upload_port = config.upload_port.clone();
+        server.start(log_tx)?;
+    }
+    for entry in settings::load_history().map_err(|error| error.to_string())? {
+        if let Err(error) =
+            cmd::prepare_project_connection(std::path::Path::new(&entry.path), &config)
+        {
+            eprintln!("Failed to refresh connection for {}: {error}", entry.name);
+        }
+    }
+    println!(
+        "Baker Link Env listening on {} (DAP {}) and {} (ELF upload)",
+        config.bind_ip, config.dap_port, config.upload_port
+    );
+
+    loop {
+        while let Ok(message) = log_rx.try_recv() {
+            println!("{message}");
+        }
+        let stopped = dap_server()
+            .lock()
+            .map_err(|_| "DAP server lock is poisoned".to_string())?
+            .refresh_status()
+            == cmd::DapServerStatus::Stopped;
+        if stopped {
+            return Err("Baker Link Env server stopped unexpectedly".to_string());
+        }
+        if shutdown_rx.recv_timeout(Duration::from_millis(100)).is_ok() {
+            break;
+        }
+    }
+
+    let mut server = dap_server()
+        .lock()
+        .map_err(|_| "DAP server lock is poisoned".to_string())?;
+    server.stop();
+    while server.refresh_status() != cmd::DapServerStatus::Stopped {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    println!("Baker Link Env stopped");
+    Ok(())
 }

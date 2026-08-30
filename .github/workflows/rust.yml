@@ -62,6 +62,15 @@ jobs:
         with:
           tool: dioxus-cli
 
+      - name: Build Tailwind CSS
+        run: npx --yes tailwindcss@3.4.17 -i input.css -o assets/tailwind.css --minify
+
+      - name: Check formatting
+        run: cargo fmt --package baker-link-env -- --check
+
+      - name: Run tests
+        run: cargo test
+
       - name: Build
         run: cargo build --release
 
