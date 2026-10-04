@@ -78,6 +78,21 @@ flowchart LR
 
 ## Install
 
+### Building from Source
+
+Use Dioxus CLI **0.7.10**, matching the Dioxus dependencies pinned in
+`Cargo.toml`. Installing the latest CLI can cause a version incompatibility
+error during bundling.
+
+```sh
+cargo install dioxus-cli --version 0.7.10 --locked --force
+dx --version
+dx bundle --release --package-types deb
+```
+
+When updating Dioxus, update both dependencies and the CLI version in the
+release workflow together.
+
 Installers for Windows, macOS, and Ubuntu are available on the [Releases](https://github.com/Baker-link-Lab/baker-link-env/releases) page.
 
 ### macOS: "Damaged App" Error

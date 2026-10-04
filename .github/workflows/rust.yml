@@ -60,7 +60,7 @@ jobs:
       - name: Install Dioxus CLI
         uses: taiki-e/install-action@v2
         with:
-          tool: dioxus-cli
+          tool: dioxus-cli@0.7.10
 
       - name: Build Tailwind CSS
         run: npx --yes tailwindcss@3.4.17 -i input.css -o assets/tailwind.css --minify
