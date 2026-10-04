@@ -1,6 +1,8 @@
+use anyhow::{bail, Context};
 use std::net::{IpAddr, SocketAddr, TcpListener};
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
+use std::path::Path;
 use std::process::Command;
 use std::thread;
 
@@ -57,19 +59,113 @@ impl Default for ProbeRsDapServer {
     }
 }
 
-pub fn open_vscode(path: &str) -> Result<std::process::Output, std::io::Error> {
-    #[cfg(target_os = "windows")]
-    {
-        open_vscode_windows(path)
+pub fn open_vscode(path: &str) -> anyhow::Result<()> {
+    let path = std::path::absolute(path)?;
+    if !path.is_dir() {
+        bail!("Project folder does not exist: {}", path.display());
     }
-    #[cfg(target_os = "macos")]
-    {
-        open_vscode_macos(path)
+    let container_uri = dev_container_uri(&path)?;
+    let arguments = match container_uri {
+        Some(uri) => {
+            let extensions = run_vscode(&["--list-extensions".to_string()])?;
+            if !String::from_utf8_lossy(&extensions.stdout)
+                .lines()
+                .any(|line| {
+                    line.trim()
+                        .eq_ignore_ascii_case("ms-vscode-remote.remote-containers")
+                })
+            {
+                bail!("Install the Dev Containers extension (ms-vscode-remote.remote-containers) in VS Code");
+            }
+            wait_for_docker()?;
+            vec!["--new-window".to_string(), "--folder-uri".to_string(), uri]
+        }
+        None => vec![path
+            .to_str()
+            .context("Project path is not valid UTF-8")?
+            .to_string()],
+    };
+    run_vscode(&arguments)?;
+    Ok(())
+}
+
+fn dev_container_uri(path: &Path) -> anyhow::Result<Option<String>> {
+    for relative in [".devcontainer/devcontainer.json", ".devcontainer.json"] {
+        let config_path = path.join(relative);
+        match std::fs::read_to_string(&config_path) {
+            Ok(config) => {
+                return build_dev_container_uri(
+                    path.to_str().context("Project path is not valid UTF-8")?,
+                    &config,
+                )
+                .with_context(|| format!("Failed to read {}", config_path.display()))
+                .map(Some);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("Failed to read {}", config_path.display()));
+            }
+        }
     }
-    #[cfg(target_os = "linux")]
-    {
-        open_vscode_linux(path)
+    Ok(None)
+}
+
+fn build_dev_container_uri(host_path: &str, config: &str) -> anyhow::Result<String> {
+    let config: serde_json::Value = json5::from_str(config)?;
+    let workspace = config["workspaceFolder"].as_str().context(
+        "Set an explicit workspaceFolder in devcontainer.json to open directly in a container",
+    )?;
+    let basename = host_path
+        .trim_end_matches(['/', '\\'])
+        .rsplit(['/', '\\'])
+        .next()
+        .context("Project path has no folder name")?;
+    let workspace = workspace.replace("${localWorkspaceFolderBasename}", basename);
+    if !workspace.starts_with('/') || workspace.contains("${") {
+        bail!("workspaceFolder must be an absolute container path; only ${{localWorkspaceFolderBasename}} substitution is supported");
     }
+    // Dev Containers encodes the host folder as UTF-8 hex in the remote authority.
+    let authority: String = host_path
+        .bytes()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    let mut uri = url::Url::parse(&format!("vscode-remote://dev-container+{authority}/"))?;
+    uri.set_path(&workspace.replace('%', "%25"));
+    Ok(uri.to_string())
+}
+
+fn wait_for_docker() -> anyhow::Result<()> {
+    if is_docker_running().map_err(anyhow::Error::msg)? {
+        return Ok(());
+    }
+    crate::log_info("Starting Rancher Desktop; waiting for Docker...");
+    start_rd().map_err(anyhow::Error::msg)?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    loop {
+        if is_docker_running().map_err(anyhow::Error::msg)? {
+            return Ok(());
+        }
+        if std::time::Instant::now() >= deadline {
+            bail!("Docker did not become ready within 60 seconds. Start Rancher Desktop and try again");
+        }
+        thread::sleep(std::time::Duration::from_secs(1));
+    }
+}
+
+fn run_vscode(arguments: &[String]) -> anyhow::Result<std::process::Output> {
+    let output = vscode_command()
+        .args(arguments)
+        .output()
+        .context("Failed to execute VS Code CLI; ensure Visual Studio Code is installed and its code command is available")?;
+    if !output.status.success() {
+        bail!(
+            "VS Code CLI failed ({}): {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(output)
 }
 
 pub fn start_rd() -> std::result::Result<(), String> {
@@ -277,22 +373,25 @@ fn spawn_dap_server_thread(
 }
 
 #[cfg(target_os = "windows")]
-fn open_vscode_windows(path: &str) -> Result<std::process::Output, std::io::Error> {
-    let env_path = std::env::var("PATH").unwrap();
-    std::process::Command::new("code.cmd")
-        .arg(path)
-        .env("PATH", env_path)
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()
+fn vscode_command() -> Command {
+    let mut command = Command::new("code.cmd");
+    command.creation_flags(CREATE_NO_WINDOW);
+    command
 }
 
 #[cfg(target_os = "macos")]
-fn open_vscode_macos(path: &str) -> Result<std::process::Output, std::io::Error> {
-    std::process::Command::new("open")
-        .arg("-a")
-        .arg("Visual Studio Code")
-        .arg(path)
-        .output()
+fn vscode_command() -> Command {
+    let cli = Path::new("/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code");
+    if cli.is_file() {
+        return Command::new(cli);
+    }
+    if let Some(home) = dirs::home_dir() {
+        let cli = home.join("Applications/Visual Studio Code.app/Contents/Resources/app/bin/code");
+        if cli.is_file() {
+            return Command::new(cli);
+        }
+    }
+    Command::new("code")
 }
 
 #[cfg(target_os = "windows")]
@@ -426,8 +525,8 @@ fn linux_path_with_rd() -> String {
 }
 
 #[cfg(target_os = "linux")]
-fn open_vscode_linux(path: &str) -> Result<std::process::Output, std::io::Error> {
-    std::process::Command::new("code").arg(path).output()
+fn vscode_command() -> Command {
+    Command::new("code")
 }
 
 #[cfg(target_os = "linux")]
@@ -460,6 +559,82 @@ fn docker_info_linux() -> Result<bool, String> {
 mod tests {
     use super::*;
     use std::time::{Duration, Instant};
+
+    #[test]
+    fn builds_uri_for_template_workspace() {
+        let host = "/home/user/myproject";
+        let uri = build_dev_container_uri(
+            host,
+            r#"{
+                // JSONC comments and trailing commas are accepted.
+                "workspaceFolder": "/myproject",
+            }"#,
+        )
+        .unwrap();
+        let encoded: String = host.bytes().map(|byte| format!("{byte:02x}")).collect();
+        assert_eq!(
+            uri,
+            format!("vscode-remote://dev-container+{encoded}/myproject")
+        );
+    }
+
+    #[test]
+    fn encodes_windows_host_and_workspace_special_characters() {
+        let host = r"C:\Users\user\my project";
+        let uri = build_dev_container_uri(
+            host,
+            r#"{ "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}/日本語 #?%" }"#,
+        )
+        .unwrap();
+        let encoded: String = host.bytes().map(|byte| format!("{byte:02x}")).collect();
+        assert_eq!(
+            uri,
+            format!(
+                "vscode-remote://dev-container+{encoded}/workspaces/my%20project/%E6%97%A5%E6%9C%AC%E8%AA%9E%20%23%3F%25"
+            )
+        );
+    }
+
+    #[test]
+    fn rejects_ambiguous_container_workspaces() {
+        for config in [
+            "{}",
+            r#"{ "workspaceFolder": "relative/path" }"#,
+            r#"{ "workspaceFolder": "/workspaces/${localEnv:PROJECT}" }"#,
+            "invalid JSON",
+        ] {
+            assert!(build_dev_container_uri("/home/user/project", config).is_err());
+        }
+    }
+
+    #[test]
+    fn detects_devcontainer_config_without_modifying_project() {
+        let root = std::env::temp_dir().join(format!(
+            "bakerlink-vscode-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        assert_eq!(dev_container_uri(&root).unwrap(), None);
+
+        let config = r#"{ "workspaceFolder": "/project" }"#;
+        std::fs::write(root.join(".devcontainer.json"), config).unwrap();
+        assert!(dev_container_uri(&root)
+            .unwrap()
+            .unwrap()
+            .ends_with("/project"));
+        std::fs::create_dir(root.join(".devcontainer")).unwrap();
+        std::fs::write(root.join(".devcontainer/devcontainer.json"), "invalid JSON").unwrap();
+        assert!(dev_container_uri(&root).is_err());
+        assert_eq!(
+            std::fs::read_to_string(root.join(".devcontainer.json")).unwrap(),
+            config
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     fn unused_port() -> u16 {
         TcpListener::bind(("127.0.0.1", 0))

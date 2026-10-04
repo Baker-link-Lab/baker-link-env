@@ -146,10 +146,9 @@ pub fn App() -> Element {
                         };
                         let result = result.map(|generated| {
                             let open_error = if open_after {
-                                let _ = cmd::start_rd();
                                 cmd::open_vscode(&worker_path)
                                     .err()
-                                    .map(|error| error.to_string())
+                                    .map(|error| format!("{error:#}"))
                             } else {
                                 None
                             };
@@ -181,9 +180,9 @@ pub fn App() -> Element {
                             } else {
                                 crate::log_info(format!("Project {project_path} already exists"));
                             }
-                            if open_after {
+                            if open_after && open_error.is_none() {
                                 crate::log_info(format!(
-                                    "Visual Studio Code opened: {project_path}"
+                                    "Visual Studio Code open requested: {project_path}"
                                 ));
                             }
                             if let Some(error) = open_error {
@@ -197,25 +196,35 @@ pub fn App() -> Element {
                             crate::log_error(format!("Project generation failed: {error}"));
                             last_error.set(Some(error));
                         }
-                        Err(_) => {
-                            crate::log_error("Project creation worker: channel closed");
+                        Err(error) => {
+                            let message = format!("Project creation worker failed: {error}");
+                            crate::log_error(message.clone());
+                            last_error.set(Some(message));
                         }
                     }
                 }
                 AppAction::OpenProject(path) => {
                     if std::path::Path::new(&path).exists() {
-                        // Start Rancher Desktop in background (non-blocking)
-                        std::thread::spawn(|| {
-                            let _ = cmd::start_rd();
-                        });
-                        crate::log_info(format!("Visual Studio Code opened: {}", path));
                         let path_clone = path.clone();
                         let (tx, rx) = tokio::sync::oneshot::channel();
                         std::thread::spawn(move || {
                             let _ = tx.send(cmd::open_vscode(&path_clone));
                         });
-                        if let Ok(Err(e)) = rx.await {
-                            crate::log_error(format!("Visual Studio Code failed to open: {}", e));
+                        match rx.await {
+                            Ok(Ok(())) => crate::log_info(format!(
+                                "Visual Studio Code open requested: {path}"
+                            )),
+                            Ok(Err(error)) => {
+                                let message =
+                                    format!("Visual Studio Code failed to open: {error:#}");
+                                crate::log_error(message.clone());
+                                last_error.set(Some(message));
+                            }
+                            Err(error) => {
+                                let message = format!("VS Code worker failed: {error}");
+                                crate::log_error(message.clone());
+                                last_error.set(Some(message));
+                            }
                         }
                     } else {
                         crate::log_error(format!("Project not found: {}", path));

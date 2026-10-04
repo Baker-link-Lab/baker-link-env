@@ -1,6 +1,6 @@
 [package]
 name = "baker-link-env"
-version = "0.2.4"
+version = "0.2.5"
 edition = "2021"
 build = "build.rs"
 
@@ -32,6 +32,7 @@ time = "0.3"
 futures-util = "0.3"
 sha2 = "0.10"
 tiny_http = "0.12"
+url = "2"
 ctrlc = "3"
 
 [features]

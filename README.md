@@ -69,6 +69,10 @@ flowchart LR
 
 - [Rancher Desktop](https://rancherdesktop.io/) (provides Docker)
 - [Visual Studio Code](https://code.visualstudio.com/)
+- [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers)
+  installed in the host's VS Code. On Windows/Linux, make the `code` command
+  available on PATH. On macOS, the app uses the VS Code CLI bundled in
+  `/Applications` or `~/Applications`, or `code` on PATH.
 
 ---
 
@@ -92,10 +96,20 @@ xattr -d com.apple.quarantine "/Applications/Baker link. Env.app"
 
 1. Enter a project name in the **Create Project** panel.
 2. Click **Create** and choose a parent folder.
-3. The app generates the project from the template and opens it in VS Code.
+3. The app generates the project from the template and opens it directly in
+   VS Code's Dev Container. The extension builds/starts the container on the
+   first open; you do not need to select **Reopen in Container**.
    The template includes `.bakerlink/connection.json` with the default host and
    ports; edit it and `.vscode/settings.json` in the generated project if your
    host connection settings differ.
+
+Opening a project from **History** uses the same behavior. Projects without
+`.devcontainer/devcontainer.json` or `.devcontainer.json` open as local folders.
+For direct container opening, the configuration must specify an absolute
+`workspaceFolder`; `${localWorkspaceFolderBasename}` is supported. Missing or
+invalid workspace settings produce an error instead of opening the wrong folder.
+If Docker is not running, the app starts Rancher Desktop and waits up to
+60 seconds for Docker to become ready. Longer startup requires trying again.
 
 ### 2. Start the DAP Server
 
@@ -104,7 +118,7 @@ xattr -d com.apple.quarantine "/Applications/Baker link. Env.app"
 3. The template connection settings default to `host.docker.internal`,
    `50001`, and `50002`. If the app uses different ports, edit
    `.bakerlink/connection.json` and `.vscode/settings.json` in the project to
-   match, then reopen it in its Dev Container.
+   match before debugging.
 4. Press `F5`. The pre-launch task builds and uploads the ELF before probe-rs starts debugging.
 
 No host path mapping or `LOCAL_WORKSPACE_FOLDER` environment variable is required.
