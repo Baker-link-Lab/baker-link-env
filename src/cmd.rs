@@ -37,7 +37,6 @@ pub struct ProbeRsDapServer {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum DapServerStatus {
-    Starting,
     Running(u16),
     Stopping,
     #[default]
@@ -111,24 +110,7 @@ pub fn generate_project(
     let restore_result = std::env::set_current_dir(original_dir);
     let project_path = result?;
     restore_result?;
-    let config = crate::settings::server_config()?;
-    prepare_project_connection(&project_path, &config)?;
     Ok(project_path)
-}
-
-pub fn prepare_project_connection(
-    path: &std::path::Path,
-    config: &crate::settings::ServerConfig,
-) -> anyhow::Result<()> {
-    let dap_port = config.dap_port.parse::<u16>()?;
-    let upload_port = config.upload_port.parse::<u16>()?;
-    crate::upload::write_connection_config(
-        path,
-        &crate::settings::upload_token()?,
-        &config.connect_host,
-        dap_port,
-        upload_port,
-    )
 }
 
 pub fn is_docker_running() -> Result<bool, String> {
@@ -167,18 +149,15 @@ impl ProbeRsDapServer {
 
         let artifact_root = crate::artifact::root_dir().map_err(|error| error.to_string())?;
         std::env::set_var(crate::artifact::ARTIFACT_ROOT_ENV, &artifact_root);
-        let upload_token = crate::settings::upload_token().map_err(|error| error.to_string())?;
         let shutdown = CancellationToken::new();
         let shutdown_task = shutdown.clone();
         let log_tx = tx.clone();
         let (completion_tx, completion_rx) = std::sync::mpsc::channel();
 
-        self.status = DapServerStatus::Starting;
         let handle = spawn_dap_server_thread(
             address,
             upload_address,
             artifact_root,
-            upload_token,
             shutdown_task,
             log_tx,
             completion_tx,
@@ -245,7 +224,6 @@ fn spawn_dap_server_thread(
     address: SocketAddr,
     upload_address: SocketAddr,
     artifact_root: std::path::PathBuf,
-    upload_token: String,
     shutdown_task: CancellationToken,
     log_tx: std::sync::mpsc::Sender<String>,
     completion_tx: std::sync::mpsc::Sender<()>,
@@ -258,7 +236,6 @@ fn spawn_dap_server_thread(
             if let Err(error) = crate::upload::run(
                 upload_address,
                 artifact_root,
-                upload_token,
                 upload_shutdown.clone(),
                 upload_log.clone(),
             ) {
@@ -393,7 +370,6 @@ pub struct TargetInfo {
     pub probe: ProbeInfo,
     pub chip_name: String,
     pub cores: Vec<String>,
-    pub target_voltage: Option<f32>,
 }
 
 pub fn list_probes() -> Vec<ProbeInfo> {
@@ -408,7 +384,7 @@ pub fn list_probes() -> Vec<ProbeInfo> {
 }
 
 pub fn detect_target() -> Result<TargetInfo, String> {
-    let lister = Lister::new();
+    let lister: Lister = Lister::new();
     let probes = lister.list_all();
     let probe_info_raw = probes.first().ok_or("No debug probe found".to_string())?;
 
@@ -436,7 +412,6 @@ pub fn detect_target() -> Result<TargetInfo, String> {
         probe: probe_info,
         chip_name,
         cores,
-        target_voltage: None,
     })
 }
 

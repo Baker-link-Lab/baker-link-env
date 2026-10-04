@@ -30,7 +30,6 @@ tokio = { version = "1", features = ["rt", "time", "sync"] }
 tokio-util = "0.7"
 time = "0.3"
 futures-util = "0.3"
-rand = "0.8"
 sha2 = "0.10"
 tiny_http = "0.12"
 ctrlc = "3"

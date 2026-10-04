@@ -9,6 +9,13 @@ enum AppAction {
     StartDap(settings::ServerConfig),
     StopDap,
     StartDocker,
+    CreateProject {
+        name: String,
+        parent_path: String,
+        branch: Option<String>,
+        tag: Option<String>,
+        open_after: bool,
+    },
     OpenProject(String),
     DetectDevice,
 }
@@ -51,7 +58,6 @@ pub fn App() -> Element {
     let mut probe_name = use_signal(String::new);
     let mut chip_name = use_signal(String::new);
     let mut chip_cores = use_signal(String::new);
-    let mut chip_voltage = use_signal(String::new);
     let mut detecting = use_signal(|| false);
 
     // Action dispatcher coroutine — single place for all side-effects
@@ -78,17 +84,6 @@ pub fn App() -> Element {
                         };
                         match server.start(tx) {
                             Ok(()) => {
-                                for entry in history.read().iter() {
-                                    if let Err(error) = cmd::prepare_project_connection(
-                                        std::path::Path::new(&entry.path),
-                                        &config,
-                                    ) {
-                                        crate::log_info(format!(
-                                            "Skipped connection refresh for {}: {error}",
-                                            entry.name
-                                        ));
-                                    }
-                                }
                                 dap_running.set(true);
                                 dap_stopping.set(false);
                                 crate::log_info(format!(
@@ -128,27 +123,87 @@ pub fn App() -> Element {
                         }
                     }
                 }
+                AppAction::CreateProject {
+                    name,
+                    parent_path,
+                    branch,
+                    tag,
+                    open_after,
+                } => {
+                    let project_path = std::path::Path::new(&parent_path).join(&name);
+                    let project_path = project_path.to_string_lossy().to_string();
+                    let already_exists = std::path::Path::new(&project_path).exists();
+                    let worker_path = project_path.clone();
+                    let worker_name = name.clone();
+                    let (tx, rx) = tokio::sync::oneshot::channel();
+                    std::thread::spawn(move || {
+                        let result = if already_exists {
+                            Ok(false)
+                        } else {
+                            cmd::generate_project(&worker_name, &parent_path, branch, tag)
+                                .map(|_| true)
+                                .map_err(|error| error.to_string())
+                        };
+                        let result = result.map(|generated| {
+                            let open_error = if open_after {
+                                let _ = cmd::start_rd();
+                                cmd::open_vscode(&worker_path)
+                                    .err()
+                                    .map(|error| error.to_string())
+                            } else {
+                                None
+                            };
+                            (generated, open_error)
+                        });
+                        let _ = tx.send(result);
+                    });
+
+                    match rx.await {
+                        Ok(Ok((generated, open_error))) => {
+                            if generated {
+                                crate::log_info(format!("Project {project_path} generated"));
+                                let mut entries = history.read().clone();
+                                if !entries.iter().any(|entry| entry.path == project_path) {
+                                    if entries.len() >= settings::HISTORY_MAX {
+                                        entries.remove(0);
+                                    }
+                                    entries.push(settings::HistoryEntry {
+                                        name,
+                                        path: project_path.clone(),
+                                    });
+                                    if let Err(error) = settings::save_history(&entries) {
+                                        crate::log_error(format!(
+                                            "Failed to save project history: {error}"
+                                        ));
+                                    }
+                                    history.set(entries);
+                                }
+                            } else {
+                                crate::log_info(format!("Project {project_path} already exists"));
+                            }
+                            if open_after {
+                                crate::log_info(format!(
+                                    "Visual Studio Code opened: {project_path}"
+                                ));
+                            }
+                            if let Some(error) = open_error {
+                                crate::log_error(format!(
+                                    "Visual Studio Code failed to open: {error}"
+                                ));
+                                last_error.set(Some(error));
+                            }
+                        }
+                        Ok(Err(error)) => {
+                            crate::log_error(format!("Project generation failed: {error}"));
+                            last_error.set(Some(error));
+                        }
+                        Err(_) => {
+                            crate::log_error("Project creation worker: channel closed");
+                        }
+                    }
+                }
                 AppAction::OpenProject(path) => {
                     if std::path::Path::new(&path).exists() {
-                        let config = match settings::server_config() {
-                            Ok(config) => config,
-                            Err(error) => {
-                                crate::log_error(format!(
-                                    "Failed to load server settings: {error}"
-                                ));
-                                last_error.set(Some(error.to_string()));
-                                continue;
-                            }
-                        };
-                        if let Err(error) =
-                            cmd::prepare_project_connection(std::path::Path::new(&path), &config)
-                        {
-                            crate::log_error(format!(
-                                "Failed to prepare debug connection: {error}"
-                            ));
-                            last_error.set(Some(error.to_string()));
-                            continue;
-                        }
                         // Start Rancher Desktop in background (non-blocking)
                         std::thread::spawn(|| {
                             let _ = cmd::start_rd();
@@ -182,7 +237,6 @@ pub fn App() -> Element {
                     probe_name.set(String::new());
                     chip_name.set(String::new());
                     chip_cores.set(String::new());
-                    chip_voltage.set(String::new());
                     let (tx, rx) = tokio::sync::oneshot::channel();
                     std::thread::spawn(move || {
                         let _ = tx.send(cmd::detect_target());
@@ -204,9 +258,6 @@ pub fn App() -> Element {
                                 } else {
                                     chip_cores.set(info.cores.join(", "));
                                 }
-                            }
-                            if let Some(v) = info.target_voltage {
-                                chip_voltage.set(format!("{v:.2}V"));
                             }
                             crate::log_info(format!(
                                 "Detected: {} ({})",
@@ -404,61 +455,33 @@ pub fn App() -> Element {
                                 button {
                                     class: "btn-primary",
                                     onclick: move |_| {
-                                        if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                                            let path_str = path.to_string_lossy().to_string();
-                                            let joined = std::path::Path::new(&path_str)
-                                                .join(project_name.read().as_str());
-                                            let joined_str = joined.to_string_lossy().to_string();
-                                            let mut project_ready = joined.exists();
-                                            if !project_ready {
-                                                let ref_val = template_ref_value.read().trim().to_string();
-                                                let ref_opt = if ref_val.is_empty() { None } else { Some(ref_val) };
-                                                let (branch, tag) = if *template_ref_is_tag.read() {
-                                                    (None, ref_opt)
-                                                } else {
-                                                    (ref_opt, None)
-                                                };
-                                                match cmd::generate_project(
-                                                    project_name.read().as_str(),
-                                                    &path_str,
+                                        let ref_value =
+                                            template_ref_value.read().trim().to_string();
+                                        let selected_ref =
+                                            (!ref_value.is_empty()).then_some(ref_value);
+                                        let (branch, tag) = if *template_ref_is_tag.read() {
+                                            (None, selected_ref)
+                                        } else {
+                                            (selected_ref, None)
+                                        };
+                                        let name = project_name.read().clone();
+                                        let open_after = *vscode_open_enabled.read();
+                                        spawn(async move {
+                                            if let Some(path) =
+                                                rfd::AsyncFileDialog::new().pick_folder().await
+                                            {
+                                                actions.send(AppAction::CreateProject {
+                                                    name,
+                                                    parent_path: path
+                                                        .path()
+                                                        .to_string_lossy()
+                                                        .to_string(),
                                                     branch,
                                                     tag,
-                                                ) {
-                                                    Ok(_) => {
-                                                        project_ready = true;
-                                                        crate::log_info(format!("Project {} generated", joined_str));
-                                                        let mut h = history.read().clone();
-                                                        if !h.iter().any(|e| e.path == joined_str) {
-                                                            if h.len() >= settings::HISTORY_MAX {
-                                                                h.remove(0);
-                                                            }
-                                                            h.push(settings::HistoryEntry {
-                                                                name: project_name.read().clone(),
-                                                                path: joined_str.clone(),
-                                                            });
-                                                            if let Err(error) = settings::save_history(&h) {
-                                                                crate::log_error(format!("Failed to save project history: {error}"));
-                                                            }
-                                                            history.set(h);
-                                                        }
-                                                    }
-                                                    Err(e) => {
-                                                        crate::log_error(format!("Project generation failed: {}", e));
-                                                    }
-                                                }
-                                            } else {
-                                                crate::log_info(format!("Project {} already exists", joined_str));
+                                                    open_after,
+                                                });
                                             }
-                                            if project_ready && *vscode_open_enabled.read() {
-                                                let _ = cmd::start_rd();
-                                                crate::log_info(format!("Visual Studio Code opened: {}", joined_str));
-                                                if let Err(e) = cmd::open_vscode(&joined_str) {
-                                                    crate::log_error(
-                                                        format!("Visual Studio Code failed to open: {}", e),
-                                                    );
-                                                }
-                                            }
-                                        }
+                                        });
                                     },
                                     "Create"
                                 }
@@ -594,16 +617,6 @@ pub fn App() -> Element {
                                                 }
                                             }
                                         }
-                                        if !chip_voltage.read().is_empty() {
-                                            div { class: "flex items-baseline gap-2 min-w-0",
-                                                span { class: "text-[10px] font-bold text-bkl-text-faint uppercase tracking-[0.04em] shrink-0",
-                                                    "Voltage"
-                                                }
-                                                span { class: "text-xs text-bkl-text-muted font-mono overflow-hidden text-ellipsis whitespace-nowrap",
-                                                    "{chip_voltage}"
-                                                }
-                                            }
-                                        }
                                     }
                                 }
                             }
@@ -685,16 +698,21 @@ pub fn App() -> Element {
                     }
                     div { class: "log-viewer",
                         for (idx , line) in logs.read().iter().enumerate() {
-                            div {
-                                key: "{idx}",
-                                class: "log-line {logger::log_level_class(line)}",
-                                span { class: "text-bkl-text-faint shrink-0 select-all",
-                                    "{logger::extract_timestamp(line)}"
+                            {
+                                let display = logger::present_log_line(line);
+                                rsx! {
+                                    div {
+                                        key: "{idx}",
+                                        class: "log-line {display.class}",
+                                        span { class: "text-bkl-text-faint shrink-0 select-all",
+                                            "{display.timestamp}"
+                                        }
+                                        span { class: "log-badge {display.badge_class}",
+                                            "{display.level}"
+                                        }
+                                        span { class: "break-all", "{display.message}" }
+                                    }
                                 }
-                                span { class: "log-badge {logger::log_badge_class(line)}",
-                                    "{logger::extract_level(line)}"
-                                }
-                                span { class: "break-all", "{logger::extract_message(line)}" }
                             }
                         }
                     }

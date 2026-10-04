@@ -58,7 +58,7 @@ flowchart LR
 | **Project creation** | One-click project scaffolding from a Git template via `cargo-generate` |
 | **VS Code integration** | Automatically opens the new project in VS Code |
 | **probe-rs DAP Server** | Start/stop a local DAP server with configurable port |
-| **ELF transfer** | Securely transfers the container-built ELF to the host before each debug session |
+| **ELF transfer** | Transfers the container-built ELF to the host before each debug session |
 | **Docker management** | Detects Rancher Desktop status and offers to start it |
 | **Project history** | Quick access to recent projects from the UI and system tray |
 | **System tray** | Runs as a tray-resident app — control DAP server and open projects without opening the window |
@@ -92,24 +92,40 @@ xattr -d com.apple.quarantine "/Applications/Baker link. Env.app"
 
 1. Enter a project name in the **Create Project** panel.
 2. Click **Create** and choose a parent folder.
-3. The app generates the project and opens it in VS Code.
+3. The app generates the project from the template and opens it in VS Code.
+   The template includes `.bakerlink/connection.json` with the default host and
+   ports; edit it and `.vscode/settings.json` in the generated project if your
+   host connection settings differ.
 
 ### 2. Start the DAP Server
 
 1. Optionally change **Bind IP**, **DAP Port**, or **ELF Upload Port**. The defaults are `0.0.0.0`, `50001`, and `50002`.
 2. Click **Run**. The app saves these values and starts both services.
-3. Reopen the generated project in its Dev Container.
+3. The template connection settings default to `host.docker.internal`,
+   `50001`, and `50002`. If the app uses different ports, edit
+   `.bakerlink/connection.json` and `.vscode/settings.json` in the project to
+   match, then reopen it in its Dev Container.
 4. Press `F5`. The pre-launch task builds and uploads the ELF before probe-rs starts debugging.
 
 No host path mapping or `LOCAL_WORKSPACE_FOLDER` environment variable is required.
 
-To run only the DAP and ELF upload services without the desktop window, use:
+### ELF Upload Troubleshooting
 
-```sh
-cargo run -- --headless
-```
+If `.bakerlink/upload-elf.sh` reports `curl: (7)` / `Cannot connect`, start the
+host services with **Run** in the desktop app. The upload script does not start
+the host services itself.
 
-Headless mode uses the IP and ports last saved by the desktop app. Press `Ctrl+C` to stop both services gracefully.
+For Dev Containers, **Bind IP** must be reachable from Docker: use `0.0.0.0`
+or a specific host interface accessible to the container, not `127.0.0.1`.
+Settings from older versions without a saved Bind IP now default to `0.0.0.0`;
+an explicitly saved address is preserved. Ensure the ELF upload port (default
+`50002`) is allowed by the host firewall. On Linux, the container needs
+`host.docker.internal:host-gateway` in its Docker extra hosts.
+
+Binding to `0.0.0.0` exposes both services on all host interfaces. The ELF
+upload and DAP services do not authenticate clients. Use a trusted network and
+firewall rules to restrict access, and avoid exposing these ports to untrusted
+networks.
 
 ## License
 

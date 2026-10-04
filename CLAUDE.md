@@ -73,7 +73,7 @@ external/
 
 **Globals**: `DAP_SERVER` and `DISPLAY_BUFFER` are `OnceLock<Mutex<T>>` singletons in `main.rs` / `logger.rs`. Access via `crate::dap_server()` and `crate::display_buffer()`.
 
-**DAP server lifecycle**: `ProbeRsDapServer::start()` runs DAP on port 50001 and authenticated ELF upload on port 50002. Shutdown uses `CancellationToken` and remains in `Stopping` until both listener threads have joined.
+**DAP server lifecycle**: `ProbeRsDapServer::start()` runs DAP on port 50001 and ELF upload on port 50002. The upload server does not authenticate clients; bind only to trusted networks and use firewall rules. Shutdown uses `CancellationToken` and remains in `Stopping` until both listener threads have joined.
 
 **Debug artifacts**: The Dev Container pre-launch task uploads ELF files to the host cache. DAP configurations use `bakerlink://<project>/<profile>`; do not add host path mappings or `LOCAL_WORKSPACE_FOLDER`.
 

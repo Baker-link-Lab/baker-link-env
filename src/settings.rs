@@ -1,5 +1,4 @@
 use anyhow::{Context, Result};
-use rand::{rngs::OsRng, RngCore};
 use std::path::PathBuf;
 
 const APP_DIR_NAME: &str = "baker-link-env";
@@ -27,8 +26,6 @@ pub struct AppSettings {
     pub history: Vec<HistoryEntry>,
     #[serde(default)]
     pub last_splash_date: String,
-    #[serde(default)]
-    pub upload_token: String,
     #[serde(default = "default_bind_ip")]
     pub bind_ip: String,
     #[serde(default = "default_connect_host")]
@@ -40,7 +37,7 @@ pub struct AppSettings {
 }
 
 fn default_bind_ip() -> String {
-    "127.0.0.1".to_string()
+    "0.0.0.0".to_string()
 }
 
 fn default_connect_host() -> String {
@@ -95,22 +92,6 @@ pub fn save(settings: &AppSettings) -> Result<()> {
         )
     })?;
     Ok(())
-}
-
-pub fn upload_token() -> Result<String> {
-    let mut settings = load()?;
-    if settings.upload_token.len() != 64
-        || !settings
-            .upload_token
-            .bytes()
-            .all(|byte| byte.is_ascii_hexdigit())
-    {
-        let mut bytes = [0_u8; 32];
-        OsRng.fill_bytes(&mut bytes);
-        settings.upload_token = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
-        save(&settings)?;
-    }
-    Ok(settings.upload_token)
 }
 
 pub fn server_config() -> Result<ServerConfig> {
@@ -175,5 +156,26 @@ pub fn reset_all() -> Result<()> {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(error).with_context(|| format!("Failed to remove {}", path.display())),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legacy_settings_allow_container_connections() {
+        let settings: AppSettings = serde_json::from_str(r#"{"history":[]}"#).unwrap();
+        assert_eq!(settings.bind_ip, "0.0.0.0");
+        assert_eq!(settings.bind_ip, crate::cmd::ProbeRsDapServer::default().ip);
+        assert_eq!(settings.connect_host, "host.docker.internal");
+        assert_eq!(settings.dap_port, "50001");
+        assert_eq!(settings.upload_port, "50002");
+    }
+
+    #[test]
+    fn preserves_explicit_loopback_binding() {
+        let settings: AppSettings = serde_json::from_str(r#"{"bind_ip":"127.0.0.1"}"#).unwrap();
+        assert_eq!(settings.bind_ip, "127.0.0.1");
     }
 }

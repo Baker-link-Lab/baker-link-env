@@ -78,52 +78,60 @@ impl Default for DisplayBuffer {
     }
 }
 
-// ---- Log line display helpers ----
+pub struct LogLine<'a> {
+    pub class: &'static str,
+    pub badge_class: &'static str,
+    pub level: &'static str,
+    pub timestamp: &'a str,
+    pub message: &'a str,
+}
 
-pub fn log_level_class(line: &str) -> &'static str {
-    if line.contains("[ERROR]") {
-        "log-error"
+pub fn present_log_line(line: &str) -> LogLine<'_> {
+    let (class, badge_class, level) = if line.contains("[ERROR]") {
+        ("log-error", "log-badge-error", "ERR")
     } else if line.contains("[INFO]") {
-        "log-info"
+        ("log-info", "log-badge-info", "INF")
     } else {
-        "log-debug"
-    }
-}
-
-pub fn log_badge_class(line: &str) -> &'static str {
-    if line.contains("[ERROR]") {
-        "log-badge-error"
-    } else if line.contains("[INFO]") {
-        "log-badge-info"
-    } else {
-        "log-badge-default"
-    }
-}
-
-pub fn extract_level(line: &str) -> &'static str {
-    if line.contains("[ERROR]") {
-        "ERR"
-    } else if line.contains("[INFO]") {
-        "INF"
-    } else {
-        "LOG"
-    }
-}
-
-pub fn extract_timestamp(line: &str) -> &str {
-    if line.len() >= 23 {
-        &line[..23]
-    } else {
-        ""
-    }
-}
-
-pub fn extract_message(line: &str) -> &str {
-    if let Some(pos) = line.find("]: ") {
-        &line[pos + 3..]
+        ("log-debug", "log-badge-default", "LOG")
+    };
+    let timestamp = line.get(..23).unwrap_or("");
+    let message = if let Some(position) = line.find("]: ") {
+        &line[position + 3..]
     } else if line.len() > 23 {
-        &line[23..]
+        line.get(23..).unwrap_or(line)
     } else {
         line
+    };
+
+    LogLine {
+        class,
+        badge_class,
+        level,
+        timestamp,
+        message,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::present_log_line;
+
+    #[test]
+    fn parses_log_line_for_display() {
+        let display = present_log_line("2026-10-04 12:34:56.789[ERROR]: upload failed");
+
+        assert_eq!(display.class, "log-error");
+        assert_eq!(display.badge_class, "log-badge-error");
+        assert_eq!(display.level, "ERR");
+        assert_eq!(display.timestamp, "2026-10-04 12:34:56.789");
+        assert_eq!(display.message, "upload failed");
+    }
+
+    #[test]
+    fn handles_short_and_non_ascii_log_lines() {
+        let display = present_log_line("短い");
+
+        assert_eq!(display.timestamp, "");
+        assert_eq!(display.message, "短い");
     }
 }
