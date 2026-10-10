@@ -116,8 +116,8 @@ xattr -d com.apple.quarantine "/Applications/Baker link. Env.app"
    first open; you do not need to select **Reopen in Container**.
    The template includes host endpoints in the `bakerLink` object in
    `.vscode/launch.json`; edit them if your host connection settings differ.
-   Install the development Baker Link Env VSIX in the Dev Container as described
-   below; it is not yet available from the Marketplace.
+   The template automatically installs Baker Link Env from the Marketplace
+   inside the Dev Container. Wait for installation to finish before debugging.
 
 Opening a project from **History** uses the same behavior. Projects without
 `.devcontainer/devcontainer.json` or `.devcontainer.json` open as local folders.
@@ -140,10 +140,18 @@ If Docker is not running, the app starts Rancher Desktop and waits up to
 
 No host path mapping or `LOCAL_WORKSPACE_FOLDER` environment variable is required.
 
-### VS Code Extension (Development MVP)
+### VS Code Extension
+
+[Baker Link Env](https://marketplace.visualstudio.com/items?itemName=baker-link-lab.baker-link-env)
+is available from the VS Code Marketplace. The template's
+`.devcontainer/devcontainer.json` automatically installs
+`baker-link-lab.baker-link-env` inside the container.
+For existing containers, update the configuration and run
+**Dev Containers: Rebuild Container**, or install the extension manually from
+the Extensions view in the Dev Container window.
 
 The fork is maintained as the `external/baker-link-env-vscode` submodule.
-Initialize submodules before building:
+For extension development, initialize submodules before building a local VSIX:
 
 ```sh
 git submodule update --init --recursive
@@ -153,12 +161,11 @@ npm test
 npm run package
 ```
 
-In the project's Dev Container window, use **Extensions: Install from VSIX...**
-to install `baker-link-env-0.1.1.vsix` in the container.
+To test a local development build, use **Extensions: Install from VSIX...**
+in the project's Dev Container window.
 Requires VS Code >= 1.116.0 and Node >= 22 for extension development.
 The extension ID is `baker-link-lab.baker-link-env`; the debugger type is
 `baker-link-debug`, separate from the official probe-rs extension.
-The template does not request a Marketplace installation until publication.
 
 The extension reads per-configuration endpoints from `.vscode/launch.json`, provides
 **Baker Link: Check Host Connection** and **Baker Link: Open Connection Settings**,
