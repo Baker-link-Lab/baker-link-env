@@ -114,9 +114,10 @@ xattr -d com.apple.quarantine "/Applications/Baker link. Env.app"
 3. The app generates the project from the template and opens it directly in
    VS Code's Dev Container. The extension builds/starts the container on the
    first open; you do not need to select **Reopen in Container**.
-   The template includes `.bakerlink/connection.json` with the default host and
-   ports; edit it and `.vscode/settings.json` in the generated project if your
-   host connection settings differ.
+   The template includes host endpoints in the `bakerLink` object in
+   `.vscode/launch.json`; edit them if your host connection settings differ.
+   Install the development Baker Link Env VSIX in the Dev Container as described
+   below; it is not yet available from the Marketplace.
 
 Opening a project from **History** uses the same behavior. Projects without
 `.devcontainer/devcontainer.json` or `.devcontainer.json` open as local folders.
@@ -132,16 +133,51 @@ If Docker is not running, the app starts Rancher Desktop and waits up to
 2. Click **Run**. The app saves these values and starts both services.
 3. The template connection settings default to `host.docker.internal`,
    `50001`, and `50002`. If the app uses different ports, edit
-   `.bakerlink/connection.json` and `.vscode/settings.json` in the project to
-   match before debugging.
-4. Press `F5`. The pre-launch task builds and uploads the ELF before probe-rs starts debugging.
+   `bakerLink.dapServer` and `bakerLink.uploadUrl` in `.vscode/launch.json`
+   to match before debugging.
+4. Press `F5`. The pre-launch task builds the ELF; the Baker Link Env extension
+   uploads it before connecting to probe-rs.
 
 No host path mapping or `LOCAL_WORKSPACE_FOLDER` environment variable is required.
 
+### VS Code Extension (Development MVP)
+
+The fork is maintained as the `external/baker-link-env-vscode` submodule.
+Initialize submodules before building:
+
+```sh
+git submodule update --init --recursive
+cd external/baker-link-env-vscode
+npm ci
+npm test
+npm run package
+```
+
+In the project's Dev Container window, use **Extensions: Install from VSIX...**
+to install `baker-link-env-0.1.1.vsix` in the container.
+Requires VS Code >= 1.116.0 and Node >= 22 for extension development.
+The extension ID is `baker-link-lab.baker-link-env`; the debugger type is
+`baker-link-debug`, separate from the official probe-rs extension.
+The template does not request a Marketplace installation until publication.
+
+The extension reads per-configuration endpoints from `.vscode/launch.json`, provides
+**Baker Link: Check Host Connection** and **Baker Link: Open Connection Settings**,
+and uploads the container-side `bakerLink.elf` after a successful build.
+Keep `remoteServerMode: false` with `bakerlink://<project>/<profile>` artifacts.
+Port checks are TCP reachability checks, not USB probe or application readiness
+checks. The MVP does not add host start/stop control or automatic host startup.
+See the extension's [README](external/baker-link-env-vscode/README.md) for
+configuration and the template's [README](template/bakerlink_tutorial_template/README.md)
+for migration from the old `.bakerlink` directory. Move non-default endpoints
+to `bakerLink.dapServer` / `bakerLink.uploadUrl`, remove shell-upload tasks,
+and delete `.bakerlink`. The extension handles uploads without project scripts.
+
 ### ELF Upload Troubleshooting
 
-If `.bakerlink/upload-elf.sh` reports `curl: (7)` / `Cannot connect`, start the
-host services with **Run** in the desktop app. The upload script does not start
+If the extension reports an ELF upload connection failure, start the host
+services with **Run** in the desktop app and check endpoints in `.vscode/launch.json`.
+Use **Baker Link: Check Host Connection** for TCP diagnostics and the
+**Baker Link Env** output channel for errors. The extension does not start
 the host services itself.
 
 For Dev Containers, **Bind IP** must be reachable from Docker: use `0.0.0.0`

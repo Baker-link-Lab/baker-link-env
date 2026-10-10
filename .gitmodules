@@ -4,3 +4,6 @@
 [submodule "template/bakerlink_tutorial_template"]
 	path = template/bakerlink_tutorial_template
 	url = https://github.com/Baker-link-Lab/bakerlink_tutorial_template.git
+[submodule "external/baker-link-env-vscode"]
+	path = external/baker-link-env-vscode
+	url = https://github.com/Baker-link-Lab/baker-link-env-vscode.git
