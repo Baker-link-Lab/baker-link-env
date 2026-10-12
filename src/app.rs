@@ -605,7 +605,7 @@ pub fn App() -> Element {
                                 }
                                 button {
                                     class: "btn-chip",
-                                    onclick: move |_| actions.send(AppAction::OpenHelp(Some("doctor-start-here"))),
+                                    onclick: move |_| actions.send(AppAction::OpenHelp(Some("environment-setup"))),
                                     {language.read().text("Start here: environment setup").into_owned()}
                                 }
                             }
@@ -662,7 +662,7 @@ pub fn App() -> Element {
                             }
                             button {
                                 class: "btn-chip",
-                                onclick: move |_| actions.send(AppAction::OpenHelp(Some("doctor-start-here"))),
+                                onclick: move |_| actions.send(AppAction::OpenHelp(Some("environment-setup"))),
                                 {language.read().text("Start here: environment setup").into_owned()}
                             }
                         }
@@ -991,7 +991,7 @@ pub fn App() -> Element {
                     if doctor_notice.read().is_some() && last_error.read().is_none() {
                         button {
                             class: "btn-chip",
-                            onclick: move |_| actions.send(AppAction::OpenHelp(Some("doctor-start-here"))),
+                            onclick: move |_| actions.send(AppAction::OpenHelp(Some("environment-setup"))),
                             {language.read().text("Open Help").into_owned()}
                         }
                     }

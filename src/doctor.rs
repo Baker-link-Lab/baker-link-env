@@ -84,9 +84,9 @@ enum Probe {
     DockerEndpoint,
 }
 
-const VSCODE_HELP: &str = "doctor-vscode";
-const EXTENSION_HELP: &str = "doctor-dev-containers";
-const DOCKER_HELP: &str = "doctor-docker-cli";
+const VSCODE_HELP: &str = "vscode";
+const EXTENSION_HELP: &str = "dev-containers";
+const DOCKER_HELP: &str = "docker-cli";
 
 pub fn run() -> Report {
     diagnose(std::env::consts::OS, |probe| {
@@ -130,8 +130,8 @@ fn diagnose(host_os: &str, mut probe: impl FnMut(Probe) -> Result<String, String
             None
         } else {
             match name {
-                "Docker Engine" => Some("doctor-docker-engine"),
-                "Host networking support" => Some("doctor-host-networking"),
+                "Docker Engine" => Some("docker-engine"),
+                "Host networking support" => Some("host-networking"),
                 _ => help_section,
             }
         };
@@ -474,7 +474,8 @@ mod tests {
                     include_str!("../README.ja.md"),
                 ),
             ] {
-                assert!(readme.contains(&format!("## {section}")));
+                assert!(readme.contains(&format!("<a id=\"{section}\"></a>")));
+                assert!(readme.contains("<a id=\"environment-setup\"></a>"));
                 assert!(language
                     .help_url(Some(section))
                     .ends_with(&format!("#{section}")));
