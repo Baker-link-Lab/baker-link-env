@@ -4,6 +4,7 @@ mod app;
 mod artifact;
 mod cmd;
 mod helpers;
+mod host_network;
 mod logger;
 mod parameter;
 mod settings;

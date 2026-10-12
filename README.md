@@ -127,6 +127,35 @@ invalid workspace settings produce an error instead of opening the wrong folder.
 If Docker is not running, the app starts Rancher Desktop and waits up to
 60 seconds for Docker to become ready. Longer startup requires trying again.
 
+### Cross-platform Host Networking
+
+The container uses `host.docker.internal` for both host services on Windows,
+macOS, and Debian. When opening a Baker Link template project, the app inspects
+the active Docker engine and updates `.docker/compose.host.yaml`:
+
+- Rancher Desktop / Docker Desktop: keep the runtime's native host DNS.
+- Debian / other Linux with local, rootful Docker Engine: add
+  `host.docker.internal:host-gateway`.
+
+Do not add an unconditional `host-gateway` mapping to the base Compose file:
+on Windows with Rancher Desktop it can point to the Linux Docker bridge rather
+than Windows. The app migrates the previous template's exact mapping and adds
+the host override to the Dev Container configuration. Other projects are not
+rewritten. Rootless Docker, Windows containers, and remote native Docker engines
+require a separate connection setup and are not supported by this automatic mode.
+
+Reopen through Baker Link Env after moving a project to another host/runtime,
+then use **Dev Containers: Rebuild Container** to apply network changes to an
+existing container. The app does not recreate containers itself. Projects
+generated without opening initially have the desktop-safe override; opening
+through the app configures it for the active engine.
+
+For a manual VS Code open, configure the override as described in the
+[template README](template/bakerlink_tutorial_template/README.md).
+Start the desktop app's services with **Run** and use the extension's
+**Baker Link: Check Host Connection** to verify both ports. Keep Bind IP at
+`0.0.0.0` for container access and limit firewall access to trusted networks.
+
 ### 2. Start the DAP Server
 
 1. Optionally change **Bind IP**, **DAP Port**, or **ELF Upload Port**. The defaults are `0.0.0.0`, `50001`, and `50002`.

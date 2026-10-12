@@ -78,6 +78,59 @@ pub fn open_vscode(path: &str) -> anyhow::Result<()> {
                 bail!("Install the Dev Containers extension (ms-vscode-remote.remote-containers) in VS Code");
             }
             wait_for_docker()?;
+            if crate::host_network::is_managed_project(&path)? {
+                let output = docker_command()
+                    .args(["info", "--format", "{{json .}}"])
+                    .output()
+                    .context("Failed to inspect Docker host networking")?;
+                if !output.status.success() {
+                    bail!(
+                        "Docker host networking inspection failed: {}",
+                        String::from_utf8_lossy(&output.stderr).trim()
+                    );
+                }
+                let info: crate::host_network::DockerInfo = serde_json::from_slice(&output.stdout)
+                    .context("Invalid Docker runtime information")?;
+                let host_gateway =
+                    crate::host_network::needs_host_gateway(&info, std::env::consts::OS)?;
+                if host_gateway {
+                    let endpoint = if std::env::var_os("DOCKER_CONTEXT").is_none() {
+                        std::env::var("DOCKER_HOST")
+                            .ok()
+                            .filter(|host| !host.is_empty())
+                    } else {
+                        None
+                    };
+                    let endpoint = match endpoint {
+                        Some(endpoint) => endpoint,
+                        None => {
+                            let output = docker_command()
+                                .args([
+                                    "context",
+                                    "inspect",
+                                    "--format",
+                                    "{{.Endpoints.docker.Host}}",
+                                ])
+                                .output()
+                                .context("Failed to inspect Docker context")?;
+                            if !output.status.success() {
+                                bail!(
+                                    "Docker context inspection failed: {}",
+                                    String::from_utf8_lossy(&output.stderr).trim()
+                                );
+                            }
+                            String::from_utf8(output.stdout)
+                                .context("Invalid Docker context endpoint")?
+                        }
+                    };
+                    if !endpoint.trim().starts_with("unix://") {
+                        bail!("Automatic host-gateway setup requires a local Docker socket; remote Docker endpoints need explicit host connection settings");
+                    }
+                }
+                if crate::host_network::prepare_project(&path, host_gateway)? {
+                    crate::log_info("Dev Container host networking configured. Rebuild an existing container to apply changes.");
+                }
+            }
             vec!["--new-window".to_string(), "--folder-uri".to_string(), uri]
         }
         None => vec![path
@@ -206,22 +259,34 @@ pub fn generate_project(
     let restore_result = std::env::set_current_dir(original_dir);
     let project_path = result?;
     restore_result?;
+    crate::host_network::prepare_project(&project_path, false)?;
     Ok(project_path)
 }
 
-pub fn is_docker_running() -> Result<bool, String> {
+fn docker_command() -> Command {
+    let mut command = Command::new("docker");
     #[cfg(target_os = "windows")]
-    {
-        docker_info_windows()
-    }
+    command.creation_flags(CREATE_NO_WINDOW);
     #[cfg(target_os = "macos")]
     {
-        docker_info_macos()
+        let home = std::env::var("HOME").unwrap_or_default();
+        let path = std::env::var("PATH").unwrap_or_default();
+        command.env(
+            "PATH",
+            format!("{home}/.rd/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:{path}"),
+        );
     }
     #[cfg(target_os = "linux")]
-    {
-        docker_info_linux()
-    }
+    command.env("PATH", linux_path_with_rd());
+    command
+}
+
+pub fn is_docker_running() -> Result<bool, String> {
+    let output = docker_command()
+        .args(["info", "--format", "{{.ServerVersion}}"])
+        .output()
+        .map_err(|error| format!("docker info failed: {error}"))?;
+    Ok(output.status.success() && !String::from_utf8_lossy(&output.stdout).trim().is_empty())
 }
 
 impl ProbeRsDapServer {
@@ -427,39 +492,6 @@ fn start_rd_macos() -> std::result::Result<(), String> {
     }
 }
 
-#[cfg(target_os = "windows")]
-fn docker_info_windows() -> Result<bool, String> {
-    let path = std::env::var("PATH").unwrap_or_default();
-    let output = Command::new("docker")
-        .arg("info")
-        .arg("--format")
-        .arg("{{.ServerVersion}}")
-        .env("PATH", path)
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()
-        .map_err(|e| format!("docker info failed: {}", e))?;
-    Ok(output.status.success())
-}
-
-#[cfg(target_os = "macos")]
-fn docker_info_macos() -> Result<bool, String> {
-    let home_dir = std::env::var("HOME").unwrap_or_default();
-    let current_path = std::env::var("PATH").unwrap_or_default();
-    let full_path = format!(
-        "{}/.rd/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:{}",
-        home_dir, current_path
-    );
-    let output = Command::new("docker")
-        .arg("info")
-        .arg("--format")
-        .arg("{{.ServerVersion}}")
-        .env("PATH", full_path)
-        .output()
-        .map_err(|e| format!("docker info failed: {}", e))?;
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    Ok(output.status.success() && !stdout.trim().is_empty())
-}
-
 pub struct ProbeInfo {
     pub probe_type: String,
     pub identifier: String,
@@ -540,19 +572,6 @@ fn start_rd_linux() -> std::result::Result<(), String> {
         Ok(_) => Ok(()),
         Err(e) => Err(format!("Error: {}", e)),
     }
-}
-
-#[cfg(target_os = "linux")]
-fn docker_info_linux() -> Result<bool, String> {
-    let output = Command::new("docker")
-        .arg("info")
-        .arg("--format")
-        .arg("{{.ServerVersion}}")
-        .env("PATH", linux_path_with_rd())
-        .output()
-        .map_err(|e| format!("docker info failed: {}", e))?;
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    Ok(output.status.success() && !stdout.trim().is_empty())
 }
 
 #[cfg(test)]
