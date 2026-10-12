@@ -1,76 +1,56 @@
-# Project Guidelines
+# Baker link. Env
 
-## Overview
+Baker link. Env is a Rust 2021 / Dioxus 0.7.10 desktop app that scaffolds embedded Rust projects, opens them in VS Code Dev Containers, and connects container debugging to host `probe-rs`.
 
-Baker Link Env — 組込みRust開発環境の自動セットアップを行うデスクトップアプリ。
-VS Code Dev Container、probe-rs DAPサーバー、物理マイコン（RP2040等）のブリッジとして動作する。
+## Build, test, and lint
 
-## Tech Stack
+Initialize submodules before building from a fresh checkout:
 
-- **Language**: Rust (Edition 2021, stable toolchain)
-- **UI**: Dioxus 0.7.1 Desktop — RSX記法による宣言的UI
-- **Async**: Tokio ランタイム
-- **Debug**: probe-rs DAP server (`external/probe-rs/` サブモジュール)
-- **Scaffolding**: cargo-generate によるテンプレートプロジェクト生成
-- **Platform**: Windows / macOS クロスプラットフォーム
+```sh
+git submodule update --init --recursive
+```
+
+Use Dioxus CLI 0.7.10 to match the pinned Dioxus dependencies:
+
+```sh
+cargo install dioxus-cli --version 0.7.10 --locked --force
+```
+
+Common commands:
+
+```sh
+cargo run
+dx serve --platform desktop
+cargo build --release
+cargo test
+cargo test artifact::tests::stores_verified_artifact -- --exact
+cargo clippy
+cargo fmt --package baker-link-env -- --check
+```
+
+The focused test command runs one unit test by its full Rust test name. Tests live in `#[cfg(test)]` modules alongside the code they cover.
+
+CI regenerates the bundled Tailwind stylesheet before formatting, tests, build, and packaging:
+
+```sh
+npx --yes tailwindcss@3.4.17 -i input.css -o assets/tailwind.css --minify
+```
+
+Bundle installers with Dioxus CLI, for example `dx bundle --release --package-types msi` on Windows, `dmg` on macOS, or `deb` on Linux. Linux builds need the GTK/WebKit and related system packages listed in `CLAUDE.md`; non-Windows builds also need the empty `external/probe-rs/probe-rs-tools/src/cmd` and `src/util` directories for probe-rs inline module resolution (CI creates them).
 
 ## Architecture
 
-```
-src/
-  main.rs       — Dioxus初期化、ウィンドウ設定、トレイ、グローバルシングルトン
-  app.rs        — メインUIコンポーネント(App)、AppAction、リアクティブ状態管理
-  cmd.rs        — DAPサーバー管理(ProbeRsDapServer)、外部コマンド実行
-  helpers.rs    — アイコン、CSS補助、ログパース
-  logger.rs     — DisplayBuffer(mpscチャネル+リングバッファ)
-  parameter.rs  — 定数、ビルド時Git情報
-  settings.rs   — AppSettings JSON永続化(~/.config/baker-link-env/)
-assets/
-  tailwind.css  — Tailwindビルド出力（input.css から生成、gitignore対象）
-input.css       — Tailwindソース（@tailwind ディレクティブ + @layer コンポーネント）
-tailwind.config.js — Tailwind設定（bklカラー、フォント、アニメーション定義）
-external/
-  probe-rs/     — probe-rsサブモジュール（DAPサーバー実装）
-```
+- `src/main.rs` initializes Dioxus Desktop, window assets, logging, and the process-wide `DAP_SERVER` singleton. `src/app.rs` owns the UI signals and dispatches side effects through one `AppAction` coroutine.
+- `src/cmd.rs` is the boundary for external integrations: project generation, VS Code and Dev Container opening, Rancher Desktop/Docker, probe detection, and the `ProbeRsDapServer` lifecycle. Keep blocking work off UI event handlers; the coroutine delegates it to worker threads and returns results through Tokio oneshot channels.
+- Starting the host debug services launches `probe-rs` DAP and the ELF upload server on separate listener threads. Both use a shared `CancellationToken`; the server remains `Stopping` until its worker threads have joined. The default ports are 50001 (DAP) and 50002 (upload).
+- `src/upload.rs` validates upload requests and delegates storage to `src/artifact.rs`, which validates project/profile IDs, enforces the size limit and SHA-256 checksum, and stores artifacts in the OS cache. The VS Code extension uploads the container-built ELF before connecting to DAP; artifact references use `bakerlink://<project>/<profile>`, not host path mappings or `LOCAL_WORKSPACE_FOLDER`.
+- `src/settings.rs` persists server settings, project history, and splash state as JSON under the OS config directory. `src/logger.rs` provides the `DisplayBuffer` channel used to relay background logs to the UI; the UI polls it every 300 ms. Use `crate::log_info` and `crate::log_error` for UI-visible messages.
+- UI markup is Dioxus RSX in `src/app.rs`; Tailwind sources are `input.css` and `tailwind.config.js`, and the app loads the generated `assets/tailwind.css`. Keep custom component styles in the existing `@layer components` and use the `bkl-*` theme tokens.
 
-## Code Style
+## Repository conventions
 
-- Dioxus の RSX マクロで UI を記述する。HTML風の構文を使い、`rsx! { ... }` ブロック内に記述する
-- 状態管理には Dioxus の `use_signal` を使用する
-- 副作用ディスパッチは `AppAction` enum + `use_coroutine` パターンに従う
-- クロスプラットフォーム分岐は `#[cfg(target_os = "windows")]` / `#[cfg(target_os = "macos")]` で行う
-- エラーハンドリングには `anyhow::Result` を使用する
-- ロギングは `DisplayBuffer` のチャネル経由で行い、UIスレッドをブロックしない
-
-## Build and Test
-
-```sh
-# 開発実行
-cargo run
-# または
-dx serve --platform desktop
-
-# Tailwind CSS ビルド（別ターミナル）
-./tailwindcss -i input.css -o assets/tailwind.css --watch
-
-# Tailwind CSS ビルド（本番）
-./tailwindcss -i input.css -o assets/tailwind.css --minify
-
-# ビルド
-cargo build --release
-
-# Lint
-cargo clippy
-cargo fmt --check
-```
-
-## Conventions
-
-- CSS は Tailwind CSS で管理。ソースは `input.css`、ビルド出力は `assets/tailwind.css`（gitignore対象）
-- Tailwind カスタムカラーのプレフィックスは `bkl`（例: `bg-bkl-orange`, `text-bkl-green`）
-- カスタムコンポーネントスタイルは `input.css` の `@layer components` に定義
-- 設定ファイルは `~/.config/baker-link-env/settings.json` に保存
-- `build.rs` で Git ハッシュとタグを環境変数に埋め込む（`GIT_HASH`, `GIT_TAG`）
-- DAPサーバーは `CancellationToken` によるグレースフルシャットダウンを徹底する
-- `OnceLock` をグローバルシングルトン（`DISPLAY_BUFFER`, `DAP_SERVER`）に使用
-- 外部コマンドの Windows 実行は `cmd /C` または PowerShell、macOS は `sh -c` を使う
+- Use `#[cfg(target_os = "windows")`, `macos`, or `linux` for platform-specific external-command behavior. Windows child commands must use `CREATE_NO_WINDOW`; macOS Rancher Desktop commands source `~/.zshrc` so `rdctl` is available. Keep the public command API platform-neutral in `src/cmd.rs`.
+- Preserve serde defaults when changing settings so existing settings files remain readable. Save settings through `settings::save` rather than writing the file directly.
+- The DAP and ELF upload listeners do not authenticate clients. They default to binding `0.0.0.0` for container reachability; keep firewall/trusted-network requirements in mind when changing bind behavior.
+- Direct Dev Container opening expects an explicit absolute `workspaceFolder`; `${localWorkspaceFolderBasename}` is the supported substitution. See `README.md` for end-user setup, connection, and troubleshooting details.
+- Keep the Dioxus CLI version in sync with the pinned Dioxus dependencies and the release workflow when changing Dioxus versions.
