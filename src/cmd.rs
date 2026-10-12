@@ -68,13 +68,7 @@ pub fn open_vscode(path: &str) -> anyhow::Result<()> {
     let arguments = match container_uri {
         Some(uri) => {
             let extensions = run_vscode(&["--list-extensions".to_string()])?;
-            if !String::from_utf8_lossy(&extensions.stdout)
-                .lines()
-                .any(|line| {
-                    line.trim()
-                        .eq_ignore_ascii_case("ms-vscode-remote.remote-containers")
-                })
-            {
+            if !has_dev_containers(&String::from_utf8_lossy(&extensions.stdout)) {
                 bail!("Install the Dev Containers extension (ms-vscode-remote.remote-containers) in VS Code");
             }
             wait_for_docker()?;
@@ -123,9 +117,7 @@ pub fn open_vscode(path: &str) -> anyhow::Result<()> {
                                 .context("Invalid Docker context endpoint")?
                         }
                     };
-                    if !endpoint.trim().starts_with("unix://") {
-                        bail!("Automatic host-gateway setup requires a local Docker socket; remote Docker endpoints need explicit host connection settings");
-                    }
+                    crate::host_network::validate_local_endpoint(&endpoint)?;
                 }
                 if crate::host_network::prepare_project(&path, host_gateway)? {
                     crate::log_info("Dev Container host networking configured. Rebuild an existing container to apply changes.");
@@ -221,6 +213,13 @@ fn run_vscode(arguments: &[String]) -> anyhow::Result<std::process::Output> {
     Ok(output)
 }
 
+pub(crate) fn has_dev_containers(extensions: &str) -> bool {
+    extensions.lines().any(|line| {
+        line.trim()
+            .eq_ignore_ascii_case("ms-vscode-remote.remote-containers")
+    })
+}
+
 pub fn start_rd() -> std::result::Result<(), String> {
     #[cfg(target_os = "windows")]
     {
@@ -263,7 +262,7 @@ pub fn generate_project(
     Ok(project_path)
 }
 
-fn docker_command() -> Command {
+pub(crate) fn docker_command() -> Command {
     let mut command = Command::new("docker");
     #[cfg(target_os = "windows")]
     command.creation_flags(CREATE_NO_WINDOW);
@@ -438,14 +437,14 @@ fn spawn_dap_server_thread(
 }
 
 #[cfg(target_os = "windows")]
-fn vscode_command() -> Command {
+pub(crate) fn vscode_command() -> Command {
     let mut command = Command::new("code.cmd");
     command.creation_flags(CREATE_NO_WINDOW);
     command
 }
 
 #[cfg(target_os = "macos")]
-fn vscode_command() -> Command {
+pub(crate) fn vscode_command() -> Command {
     let cli = Path::new("/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code");
     if cli.is_file() {
         return Command::new(cli);
@@ -557,7 +556,7 @@ fn linux_path_with_rd() -> String {
 }
 
 #[cfg(target_os = "linux")]
-fn vscode_command() -> Command {
+pub(crate) fn vscode_command() -> Command {
     Command::new("code")
 }
 

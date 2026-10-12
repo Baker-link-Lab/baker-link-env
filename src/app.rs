@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 use futures_util::StreamExt;
 use std::time::Duration;
 
-use crate::{cmd, helpers, logger, parameter, settings};
+use crate::{cmd, doctor, helpers, logger, parameter, settings};
 
 /// Actions dispatched from UI buttons into a single coroutine.
 enum AppAction {
@@ -18,6 +18,10 @@ enum AppAction {
     },
     OpenProject(String),
     DetectDevice,
+    DiagnoseEnvironment {
+        startup: bool,
+    },
+    OpenHelp(Option<&'static str>),
 }
 
 #[component]
@@ -59,11 +63,72 @@ pub fn App() -> Element {
     let mut chip_name = use_signal(String::new);
     let mut chip_cores = use_signal(String::new);
     let mut detecting = use_signal(|| false);
+    let mut show_doctor = use_signal(|| false);
+    let mut diagnosing = use_signal(|| false);
+    let mut doctor_report = use_signal(|| Option::<doctor::Report>::None);
+    let mut startup_diagnosis_pending = use_signal(|| true);
+    let mut doctor_notice = use_signal(|| Option::<String>::None);
+    let mut help_language = use_signal(|| doctor::HelpLanguage::English);
 
     // Action dispatcher coroutine — single place for all side-effects
     let actions = use_coroutine(move |mut rx: UnboundedReceiver<AppAction>| async move {
         while let Some(action) = rx.next().await {
             match action {
+                AppAction::OpenHelp(section) => {
+                    let url = help_language.read().url(section);
+                    if let Err(error) = open::that(&url) {
+                        let message =
+                            format!("Failed to open Help: {error}. Open {url} in your browser.");
+                        crate::log_error(message.clone());
+                        last_error.set(Some(message));
+                    }
+                }
+                AppAction::DiagnoseEnvironment { startup } => {
+                    if *diagnosing.read() {
+                        continue;
+                    }
+                    diagnosing.set(true);
+                    let (tx, rx) = tokio::sync::oneshot::channel();
+                    std::thread::spawn(move || {
+                        let _ = tx.send(doctor::run());
+                    });
+                    match rx.await {
+                        Ok(report) => {
+                            for check in &report.checks {
+                                if check.status == doctor::Status::NeedsAttention {
+                                    crate::log_error(format!(
+                                        "Doctor / {}: {} {}",
+                                        check.name, check.message, check.details
+                                    ));
+                                }
+                            }
+                            crate::log_info(format!("Doctor: {}", report.summary()));
+                            if startup && !report.ready() {
+                                show_doctor.set(true);
+                                show_history.set(false);
+                                docker_prompt_dismissed.set(true);
+                                doctor_notice.set(Some(
+                                    "Some environment checks need your attention. Select English or Japanese Help, then open the setup steps for the failed item."
+                                        .to_string(),
+                                ));
+                            }
+                            doctor_report.set(Some(report));
+                        }
+                        Err(error) => {
+                            let message = format!("Environment diagnosis failed: {error}");
+                            crate::log_error(message.clone());
+                            last_error.set(Some(message));
+                            if startup {
+                                show_doctor.set(true);
+                                docker_prompt_dismissed.set(true);
+                            }
+                        }
+                    }
+                    diagnosing.set(false);
+                    if startup {
+                        startup_diagnosis_pending.set(false);
+                    }
+                }
                 AppAction::StartDap(config) => {
                     if let Err(error) = settings::save_server_config(&config) {
                         let message = format!("Failed to save server settings: {error}");
@@ -294,6 +359,10 @@ pub fn App() -> Element {
         }
     });
 
+    use_future(move || async move {
+        actions.send(AppAction::DiagnoseEnvironment { startup: true });
+    });
+
     // Auto-dismiss splash after 3 seconds (re-triggers on reset)
     use_effect(move || {
         if *show_splash.read() {
@@ -387,6 +456,17 @@ pub fn App() -> Element {
 
                 div { class: "flex items-center gap-2",
 
+                    button {
+                        class: "btn-chip",
+                        onclick: move |_| {
+                            let current = *show_doctor.peek();
+                            show_doctor.set(!current);
+                            show_history.set(false);
+                            docker_prompt_dismissed.set(true);
+                        },
+                        if *show_doctor.read() { "Home" } else { "Doctor" }
+                    }
+
                     // History dropdown
                     div { class: "relative",
                         button {
@@ -425,18 +505,140 @@ pub fn App() -> Element {
                         }
                     }
 
+                    select {
+                        class: "input",
+                        aria_label: "Help language",
+                        value: if *help_language.read() == doctor::HelpLanguage::Japanese { "ja" } else { "en" },
+                        onchange: move |event| {
+                            help_language.set(if event.value() == "ja" {
+                                doctor::HelpLanguage::Japanese
+                            } else {
+                                doctor::HelpLanguage::English
+                            });
+                        },
+                        option { value: "en", "Help: English" }
+                        option { value: "ja", "Help: 日本語" }
+                    }
                     button {
                         class: "btn-chip",
-                        onclick: move |_| {
-                            let _ = open::that(
-                                "https://github.com/Baker-link-Lab/baker-link-env/blob/main/README.md",
-                            );
-                        },
-                        "Help"
+                        onclick: move |_| actions.send(AppAction::OpenHelp(None)),
+                        if *help_language.read() == doctor::HelpLanguage::Japanese { "日本語Help" } else { "Help" }
                     }
                 }
             }
 
+            if *show_doctor.read() {
+                main {
+                    class: "main-content flex-1 py-5 px-6",
+                    style: "overflow-y: auto;",
+                    button {
+                        class: "btn-chip",
+                        title: "Return to Home",
+                        onclick: move |_| show_doctor.set(false),
+                        "\u{2190} Back to Home"
+                    }
+                    div { class: "flex items-center justify-between gap-3",
+                        div {
+                            h1 { class: "m-0 text-[15px] font-bold text-bkl-text", "Doctor" }
+                            p { class: "text-xs text-bkl-text-muted",
+                                "Check your development tools and Docker runtime. No projects or settings are changed."
+                            }
+                        }
+                        button {
+                            class: "btn-primary",
+                            disabled: *diagnosing.read(),
+                            onclick: move |_| actions.send(AppAction::DiagnoseEnvironment { startup: false }),
+                            if *diagnosing.read() { "Checking..." } else { "Run checks" }
+                        }
+                    }
+                    if *diagnosing.read() {
+                        p { role: "status", class: "text-xs text-bkl-text-muted",
+                            "Checking VS Code, Dev Containers, and Docker. Each command has a 15-second timeout."
+                        }
+                    }
+                    if let Some(report) = doctor_report.read().clone() {
+                        section { class: "card mt-5",
+                            p { role: "status", class: "text-[13px] font-semibold text-bkl-text",
+                                if *diagnosing.read() { "Previous result (checks are running)" } else { "{report.summary()}" }
+                            }
+                            p { class: "text-xs text-bkl-text-faint", "Last checked: {report.checked_at}" }
+                            p { class: "text-xs text-bkl-text-muted",
+                                "This checks host environment readiness only, not project configuration, container connections, or USB devices."
+                            }
+                            if !report.ready() {
+                                p { class: "text-xs text-bkl-text-muted",
+                                    if *help_language.read() == doctor::HelpLanguage::Japanese {
+                                        "「Needs attention」の項目から「解決手順を読む」を押してください。日本語Helpの該当箇所がブラウザーで開きます。手順を終えたら、この画面の Run checks で再確認してください。"
+                                    } else {
+                                        "Start with a Needs attention item and click Read setup steps. Help opens at the matching section in your browser. Follow the steps, return here, and click Run checks."
+                                    }
+                                }
+                                button {
+                                    class: "btn-chip",
+                                    onclick: move |_| actions.send(AppAction::OpenHelp(Some("doctor-start-here"))),
+                                    if *help_language.read() == doctor::HelpLanguage::Japanese { "はじめての環境セットアップ" } else { "Start here: environment setup" }
+                                }
+                            }
+                            button {
+                                class: "btn-chip",
+                                onclick: move |_| {
+                                    if let Some(report) = doctor_report.read().as_ref() {
+                                        let result = arboard::Clipboard::new()
+                                            .and_then(|mut clipboard| clipboard.set_text(report.text()));
+                                        if let Err(error) = result {
+                                            let message = format!("Failed to copy Doctor report: {error}");
+                                            crate::log_error(message.clone());
+                                            last_error.set(Some(message));
+                                        }
+                                    }
+                                },
+                                "Copy report"
+                            }
+                        }
+                        for check in report.checks {
+                            section { class: "card mt-5",
+                                div { class: "flex items-center justify-between gap-3",
+                                    h2 { class: "m-0 text-[13px] font-bold text-bkl-text", "{check.name}" }
+                                    span {
+                                        class: "text-xs",
+                                        style: match check.status {
+                                            doctor::Status::Passed => "color: #3dd68c;",
+                                            doctor::Status::NeedsAttention => "color: #ef4444;",
+                                            doctor::Status::NotChecked => "color: #8a8494;",
+                                        },
+                                        "{check.status.label()}"
+                                    }
+                                }
+                                p { class: "text-xs text-bkl-text-muted", "{check.message}" }
+                                if !check.details.is_empty() {
+                                    details {
+                                        summary { class: "text-xs text-bkl-text-muted", "Details" }
+                                        pre { class: "text-xs text-bkl-text-muted", style: "white-space: pre-wrap; overflow-wrap: anywhere;", "{check.details}" }
+                                    }
+                                }
+                                if let Some(section) = check.help_section {
+                                    button {
+                                        class: "btn-chip",
+                                        onclick: move |_| actions.send(AppAction::OpenHelp(Some(section))),
+                                        if *help_language.read() == doctor::HelpLanguage::Japanese { "解決手順を読む（日本語Help）" } else { "Read setup steps (English Help)" }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        section { class: "card mt-5",
+                            p { class: "text-xs text-bkl-text-muted",
+                                "Run checks to see what is ready and what needs attention. Docker does not need to be running to start the diagnosis."
+                            }
+                            button {
+                                class: "btn-chip",
+                                onclick: move |_| actions.send(AppAction::OpenHelp(Some("doctor-start-here"))),
+                                if *help_language.read() == doctor::HelpLanguage::Japanese { "はじめての環境セットアップ" } else { "Start here: environment setup" }
+                            }
+                        }
+                    }
+                }
+            } else {
             // ===== MAIN CONTENT =====
             main { class: "main-content flex-1 flex flex-col overflow-hidden py-5 px-6",
 
@@ -727,16 +929,38 @@ pub fn App() -> Element {
                     }
                 }
             }
+            }
 
-            // ---- Error toast ----
-            if let Some(err) = last_error.read().clone() {
-                div { class: "error-toast",
+            // ---- Notifications ----
+            if let Some(message) = last_error.read().clone().or_else(|| doctor_notice.read().clone()) {
+                div {
+                    class: "error-toast",
+                    role: "alert",
+                    style: "z-index: 150;",
                     div { class: "flex items-start justify-between gap-3",
-                        span { "[ERROR] {err}" }
+                        span {
+                            if last_error.read().is_some() { "[ERROR] {message}" } else { "[Doctor] {message}" }
+                        }
                         button {
-                            class: "shrink-0 text-bkl-text-faint text-lg leading-none cursor-pointer bg-transparent border-none p-0 hover:text-bkl-red",
-                            onclick: move |_| last_error.set(None),
+                            class: "btn-chip",
+                            style: "flex-shrink: 0; min-width: 32px; min-height: 32px; font-size: 20px;",
+                            title: "Dismiss notification",
+                            aria_label: "Dismiss notification",
+                            onclick: move |_| {
+                                if last_error.peek().is_some() {
+                                    last_error.set(None);
+                                } else {
+                                    doctor_notice.set(None);
+                                }
+                            },
                             "\u{00d7}"
+                        }
+                    }
+                    if doctor_notice.read().is_some() && last_error.read().is_none() {
+                        button {
+                            class: "btn-chip",
+                            onclick: move |_| actions.send(AppAction::OpenHelp(Some("doctor-start-here"))),
+                            if *help_language.read() == doctor::HelpLanguage::Japanese { "日本語Helpを開く" } else { "Open English Help" }
                         }
                     }
                 }
@@ -744,10 +968,19 @@ pub fn App() -> Element {
 
             // ---- Docker startup prompt ----
             if docker_status.read().contains("Off") && !*docker_prompt_dismissed.read()
-                && !*show_splash.read()
+                && !*show_splash.read() && !*show_doctor.read() && !*startup_diagnosis_pending.read()
             {
                 div { class: "modal-overlay",
                     div { class: "modal",
+                        div { class: "flex justify-end",
+                            button {
+                                class: "btn-chip",
+                                title: "Dismiss Docker startup prompt",
+                                aria_label: "Dismiss Docker startup prompt",
+                                onclick: move |_| docker_prompt_dismissed.set(true),
+                                "\u{00d7}"
+                            }
+                        }
                         h3 { class: "m-0 mb-3 text-base font-bold text-bkl-text", "Rancher Desktop" }
                         p { class: "m-0 mb-1 text-[13px] text-bkl-text-muted",
                             "Docker is not running."
@@ -778,6 +1011,15 @@ pub fn App() -> Element {
             if *show_reset_confirm.read() {
                 div { class: "modal-overlay",
                     div { class: "modal",
+                        div { class: "flex justify-end",
+                            button {
+                                class: "btn-chip",
+                                title: "Cancel reset",
+                                aria_label: "Cancel reset",
+                                onclick: move |_| show_reset_confirm.set(false),
+                                "\u{00d7}"
+                            }
+                        }
                         h3 { class: "m-0 mb-3 text-base font-bold text-bkl-text", "Reset Settings" }
                         p { class: "m-0 mb-1 text-[13px] text-bkl-text-muted",
                             "All settings including project history will be cleared."

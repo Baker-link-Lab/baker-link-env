@@ -8,7 +8,7 @@ const OVERRIDE: &str = "../.docker/compose.host.yaml";
 #[derive(Deserialize)]
 pub struct DockerInfo {
     #[serde(rename = "OperatingSystem")]
-    operating_system: String,
+    pub operating_system: String,
     #[serde(rename = "OSType")]
     os_type: String,
     #[serde(rename = "SecurityOptions")]
@@ -19,6 +19,7 @@ pub fn needs_host_gateway(info: &DockerInfo, host_os: &str) -> Result<bool> {
     if info.os_type != "linux" {
         bail!("Baker Link Dev Containers require a Linux Docker engine");
     }
+
     let runtime = info.operating_system.to_ascii_lowercase();
     if runtime.contains("rancher desktop") || runtime.contains("docker desktop") {
         return Ok(false);
@@ -37,6 +38,13 @@ pub fn needs_host_gateway(info: &DockerInfo, host_os: &str) -> Result<bool> {
         bail!("Rootless Docker requires an explicit host connection setup; automatic host-gateway configuration is not supported");
     }
     Ok(true)
+}
+
+pub fn validate_local_endpoint(endpoint: &str) -> Result<()> {
+    if !endpoint.trim().starts_with("unix://") {
+        bail!("Automatic host-gateway setup requires a local Docker socket; remote Docker endpoints need explicit host connection settings");
+    }
+    Ok(())
 }
 
 fn update_override(config: &mut Value, service: &str, host_gateway: bool) -> Result<()> {

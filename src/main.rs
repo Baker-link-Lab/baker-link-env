@@ -3,6 +3,7 @@
 mod app;
 mod artifact;
 mod cmd;
+mod doctor;
 mod helpers;
 mod host_network;
 mod logger;

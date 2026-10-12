@@ -1,5 +1,7 @@
 # Baker link. Env
 
+[English](README.md) | [日本語Help](README.ja.md)
+
 [<img alt="dioxus" src="https://img.shields.io/badge/Built_with-Dioxus-blue?logo=rust" height="20">](https://dioxuslabs.com)
 [<img alt="license" src="https://img.shields.io/badge/license-MIT-green" height="20">](LICENSE)
 [<img alt="platform" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey" height="20">]()
@@ -106,6 +108,164 @@ xattr -d com.apple.quarantine "/Applications/Baker link. Env.app"
 ---
 
 ## Usage
+
+### Environment Doctor
+
+Doctor automatically checks the host once on application startup. If any
+checks need attention (or diagnosis cannot complete), the Doctor screen opens
+with a dismissible notification. Successful startup checks leave Home visible.
+The splash screen may appear briefly before the results are shown.
+Use **Back to Home** to return without changing settings. Notifications and
+confirmation popups have a **×** close button.
+
+Open **Doctor** in the top bar and click **Run checks** to diagnose again:
+
+- VS Code CLI availability.
+- Dev Containers extension installed in the host VS Code.
+- Docker CLI availability and Docker Engine connectivity.
+- Active Docker runtime compatibility with Baker Link host networking.
+
+Each item displays **Passed**, **Needs attention**, or **Not checked**, with
+diagnostic details and setup links where applicable. Checks that depend on a
+missing tool or unavailable engine are marked **Not checked**, not failed.
+Use **Copy report** to copy the timestamped results; inspect command output
+for local paths or host names before sharing it.
+
+Choose **Help: English** or **Help: 日本語** in the top bar. For a failed check,
+click **Read setup steps** to open the matching section of this README (or the
+Japanese README) in your browser. After following the steps, return to Doctor
+and click **Run checks**. The startup notification also links to the setup guide.
+Online Help requires internet access and documentation published to `main`.
+
+Doctor is read-only: it does not install software, start Docker, alter
+settings/firewalls, or recreate containers. Commands run off the UI thread
+with a 15-second timeout per command. After resolving an issue, run checks
+again. A passing result means the host tools/runtime are available, not that
+debugging is verified. Project configuration, container connections, host
+service ports, and USB devices are deliberately outside its scope.
+
+## doctor-start-here
+
+### First-time setup: what to do when Doctor shows a problem
+
+You need three things on your computer: **VS Code** (the editor),
+**Dev Containers** (a VS Code extension), and **Docker** (the container engine).
+You do not need to install a host Rust toolchain just to use generated projects.
+
+1. Read the first **Needs attention** item in Doctor. This is the item to fix.
+   **Not checked** means a required earlier check could not complete; it does
+   not mean you have another independent problem.
+2. Click **Read setup steps** on that item, or choose a section below.
+3. Follow the numbered steps for your OS. If you changed PATH (the list of
+   folders where commands are found), fully exit and reopen Baker Link Env.
+4. Return to **Doctor → Run checks**. Repeat until all items show **Passed**.
+   **Back to Home** returns to the project screen.
+
+| Doctor item | Instructions |
+|---|---|
+| VS Code | [Install / enable VS Code CLI](#doctor-vscode) |
+| Dev Containers | [Install the host extension](#doctor-dev-containers) |
+| Docker CLI | [Install Docker / enable its CLI](#doctor-docker-cli) |
+| Docker Engine | [Start Docker / check its connection](#doctor-docker-engine) |
+| Host networking support | [Choose a supported runtime](#doctor-host-networking) |
+
+If diagnosis itself fails or the problem remains, click **Run checks** again,
+then **Copy report** and ask for help with the error details. Review the report
+for private paths/host names before posting it.
+
+## doctor-vscode
+
+### VS Code cannot be found or executed
+
+1. Install [Visual Studio Code](https://code.visualstudio.com/download) for
+   your OS. Open it once to confirm installation.
+2. **Windows:** enable **Add to PATH** in the installer. If VS Code is already
+   installed, run its installer again and enable that option.
+   **macOS:** keep the app in `/Applications` or `~/Applications`. For other
+   locations, open VS Code's Command Palette (`Cmd+Shift+P`) and run
+   **Shell Command: Install 'code' command in PATH**.
+   **Debian:** follow the [official Linux installation guide](https://code.visualstudio.com/docs/setup/linux)
+   and ensure `code` is available.
+3. In a new host terminal (PowerShell on Windows, Terminal on macOS/Debian),
+   run `code --version`. It should print a version, not "command not found".
+4. Fully exit and reopen Baker Link Env, then run Doctor again.
+
+If this still fails, expand **Details** in Doctor. A permission error or timeout
+does not necessarily mean VS Code is missing.
+
+## doctor-dev-containers
+
+### Install Dev Containers in the host VS Code
+
+1. Open VS Code on your computer, **not** a window connected to a container.
+2. Open Extensions (`Ctrl+Shift+X`; `Cmd+Shift+X` on macOS).
+3. Search for **Dev Containers** by **Microsoft**. Its identifier is
+   `ms-vscode-remote.remote-containers`.
+4. Click **Install**. [Open the extension page](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers)
+   if you cannot find it. Reload VS Code if prompted.
+5. Return to Baker Link Env and click **Doctor → Run checks**.
+
+If Doctor says it could not list extensions, fix the VS Code CLI first and
+check **Details**. Ensure the extension is in the same VS Code installation
+and default profile used by the `code` CLI.
+
+## doctor-docker-cli
+
+### Install Docker and make the docker command available
+
+1. For an easy starting point, install
+   [Rancher Desktop for your OS](https://docs.rancherdesktop.io/getting-started/installation/).
+   Docker Desktop is also supported. On Debian, local, rootful
+   [Docker Engine](https://docs.docker.com/engine/install/debian/) is supported.
+2. Open Rancher Desktop and choose **dockerd (moby)** as the container engine.
+   `containerd` alone does not provide the Docker API used by this app.
+   On Windows, follow its WSL 2 prerequisites; if requested, complete setup
+   and restart Windows. With Docker Desktop, use **Linux containers**.
+3. Follow the runtime's PATH setup instructions. On Windows, ensure its
+   Docker CLI folder is in your user PATH; on macOS/Linux, enable its CLI
+   links or add the documented CLI folder to PATH.
+4. In a new host terminal, run `docker --version`. It should print a version.
+5. Fully exit and reopen Baker Link Env, then run Doctor again.
+
+Install only one runtime if you are unsure which to use. Docker CLI availability
+alone does not mean its engine is running; continue with the next section.
+
+## doctor-docker-engine
+
+### Docker is installed but its engine cannot be reached
+
+1. Open the Docker runtime you installed and wait until it reports ready.
+   On Debian with native Docker Engine, follow its service startup instructions.
+2. In a host terminal, run `docker info`. It should show server information.
+3. If it fails, run `docker context ls` to see the selected engine (marked `*`).
+   If needed, use `docker context use NAME`, replacing `NAME` with the context
+   belonging to your installed runtime. Do not select an unrelated remote server.
+4. For a socket permission error on Debian, follow the
+   [official post-installation steps](https://docs.docker.com/engine/install/linux-postinstall/).
+   Docker group membership grants powerful host access; understand that warning.
+   Log out and back in if the instructions require it.
+5. Return to Baker Link Env and click **Doctor → Run checks**.
+
+If **Details** reports malformed output or a timeout, verify `docker info`
+in the terminal and update/repair your Docker runtime before retrying.
+Doctor does not start Docker automatically.
+
+## doctor-host-networking
+
+### Use a runtime supported by automatic host networking
+
+1. Use **Rancher Desktop / Docker Desktop with Linux containers** on Windows
+   or macOS, or local, rootful **Docker Engine** on Debian.
+2. Windows containers, rootless native Docker, and remote native Docker engines
+   need a different connection setup; automatic host networking does not support
+   them. Do not change IP addresses at random or disable the firewall.
+3. Check `docker context ls` and `docker info` in a host terminal. Ensure they
+   refer to the intended runtime, then click **Doctor → Run checks**.
+
+A **Passed** result here checks runtime compatibility only. It does not prove
+that a running container can reach the host ports or that an MCU is connected.
+
+## Using Projects
 
 ### 1. Create a Project
 
