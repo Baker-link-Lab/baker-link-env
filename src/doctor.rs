@@ -28,27 +28,6 @@ pub struct Check {
     pub help_section: Option<&'static str>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum HelpLanguage {
-    English,
-    Japanese,
-}
-
-impl HelpLanguage {
-    pub fn url(self, section: Option<&str>) -> String {
-        let file = match self {
-            Self::English => "README.md",
-            Self::Japanese => "README.ja.md",
-        };
-        let mut url = format!("https://github.com/Baker-link-Lab/baker-link-env/blob/main/{file}");
-        if let Some(section) = section {
-            url.push('#');
-            url.push_str(section);
-        }
-        url
-    }
-}
-
 #[derive(Clone)]
 pub struct Report {
     pub checked_at: String,
@@ -70,20 +49,26 @@ impl Report {
         }
     }
 
+    #[cfg(test)]
     pub fn text(&self) -> String {
+        self.localized_text(crate::i18n::Language::English)
+    }
+
+    pub fn localized_text(&self, language: crate::i18n::Language) -> String {
         let mut text = format!(
-            "Baker Link Doctor\nHost: {}\nChecked: {}\n{}\n",
-            std::env::consts::OS,
-            self.checked_at,
-            self.summary()
+            "{}\n{}\n{}\n{}\n",
+            language.text("Baker Link Doctor"),
+            language.text(&format!("Host: {}", std::env::consts::OS)),
+            language.text(&format!("Checked: {}", self.checked_at)),
+            language.text(self.summary())
         );
         for check in &self.checks {
             text.push_str(&format!(
                 "\n{}: {}\n{}\n{}\n",
-                check.name,
-                check.status.label(),
-                check.message,
-                check.details
+                language.text(check.name),
+                language.text(check.status.label()),
+                language.text(&check.message),
+                language.text(&check.details)
             ));
         }
         text
@@ -483,21 +468,57 @@ mod tests {
                 .help_section
                 .expect("Every failed or skipped check needs help");
             for (language, readme) in [
-                (HelpLanguage::English, include_str!("../README.md")),
-                (HelpLanguage::Japanese, include_str!("../README.ja.md")),
+                (crate::i18n::Language::English, include_str!("../README.md")),
+                (
+                    crate::i18n::Language::Japanese,
+                    include_str!("../README.ja.md"),
+                ),
             ] {
                 assert!(readme.contains(&format!("## {section}")));
                 assert!(language
-                    .url(Some(section))
+                    .help_url(Some(section))
                     .ends_with(&format!("#{section}")));
             }
         }
-        assert!(HelpLanguage::English.url(None).ends_with("/README.md"));
-        assert!(HelpLanguage::Japanese.url(None).ends_with("/README.ja.md"));
+        assert!(crate::i18n::Language::English
+            .help_url(None)
+            .ends_with("/README.md"));
+        assert!(crate::i18n::Language::Japanese
+            .help_url(None)
+            .ends_with("/README.ja.md"));
         assert!(diagnose("windows", healthy)
             .checks
             .iter()
             .all(|check| check.help_section.is_none()));
+    }
+
+    #[test]
+    fn existing_reports_translate_without_changing_results() {
+        use crate::i18n::Language;
+        for report in [
+            diagnose("windows", healthy),
+            diagnose("windows", |_| Err("command not found".into())),
+            diagnose("linux", |probe| match probe {
+                Probe::DockerEngine => Err("ECONNREFUSED 127.0.0.1".into()),
+                Probe::Extensions => Ok(String::new()),
+                _ => healthy(probe),
+            }),
+        ] {
+            let ready = report.ready();
+            for check in &report.checks {
+                assert_ne!(Language::Japanese.text(&check.message), check.message);
+                assert_ne!(
+                    Language::Japanese.text(check.status.label()),
+                    check.status.label()
+                );
+            }
+            let japanese = report.localized_text(Language::Japanese);
+            assert!(japanese.contains("診断日時: "));
+            assert!(!japanese.contains("Needs attention"));
+            let english = report.localized_text(Language::English);
+            assert_eq!(english, report.text());
+            assert_eq!(report.ready(), ready);
+        }
     }
 
     #[test]

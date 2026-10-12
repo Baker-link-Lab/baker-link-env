@@ -131,7 +131,17 @@ missing tool or unavailable engine are marked **Not checked**, not failed.
 Use **Copy report** to copy the timestamped results; inspect command output
 for local paths or host names before sharing it.
 
-Choose **Help: English** or **Help: 日本語** in the top bar. For a failed check,
+Choose **English** or **日本語** in the top bar to change the entire app's
+display language. Your selection is saved for the next launch. Buttons,
+descriptions, status labels, Doctor results, notifications and application
+log messages change immediately, including existing diagnosis results.
+Help opens the README in the selected language; copied reports use it too.
+Product names, commands, paths, device identifiers and external tools' raw
+diagnostic output are preserved so they can be used for troubleshooting.
+Native file-dialog controls follow the operating system's language.
+Resetting settings returns the language to English.
+
+For a failed check,
 click **Read setup steps** to open the matching section of this README (or the
 Japanese README) in your browser. After following the steps, return to Doctor
 and click **Run checks**. The startup notification also links to the setup guide.

@@ -23,6 +23,8 @@ pub struct HistoryEntry {
 #[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct AppSettings {
     #[serde(default)]
+    pub language: crate::i18n::Language,
+    #[serde(default)]
     pub history: Vec<HistoryEntry>,
     #[serde(default)]
     pub last_splash_date: String,
@@ -129,6 +131,12 @@ pub fn save_server_config(config: &ServerConfig) -> Result<()> {
     save(&settings)
 }
 
+pub fn save_language(language: crate::i18n::Language) -> Result<()> {
+    let mut settings = load()?;
+    settings.language = language;
+    save(&settings)
+}
+
 pub fn load_history() -> Result<Vec<HistoryEntry>> {
     Ok(load()?.history)
 }
@@ -177,5 +185,20 @@ mod tests {
     fn preserves_explicit_loopback_binding() {
         let settings: AppSettings = serde_json::from_str(r#"{"bind_ip":"127.0.0.1"}"#).unwrap();
         assert_eq!(settings.bind_ip, "127.0.0.1");
+    }
+
+    #[test]
+    fn language_is_backward_compatible_and_round_trips() {
+        use crate::i18n::Language;
+        let old: AppSettings = serde_json::from_str("{}").unwrap();
+        assert_eq!(old.language, Language::English);
+        let settings: AppSettings =
+            serde_json::from_str(r#"{"language":"japanese","dap_port":"12345"}"#).unwrap();
+        assert_eq!(settings.language, Language::Japanese);
+        let restored: AppSettings =
+            serde_json::from_str(&serde_json::to_string(&settings).unwrap()).unwrap();
+        assert_eq!(restored.language, Language::Japanese);
+        assert_eq!(restored.dap_port, "12345");
+        assert!(serde_json::from_str::<AppSettings>(r#"{"language":"invalid"}"#).is_err());
     }
 }

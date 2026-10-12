@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 use futures_util::StreamExt;
 use std::time::Duration;
 
-use crate::{cmd, doctor, helpers, logger, parameter, settings};
+use crate::{cmd, doctor, helpers, i18n::Language, logger, parameter, settings};
 
 /// Actions dispatched from UI buttons into a single coroutine.
 enum AppAction {
@@ -22,6 +22,15 @@ enum AppAction {
         startup: bool,
     },
     OpenHelp(Option<&'static str>),
+}
+
+fn localized_log_line(line: &str, language: Language) -> String {
+    let display = logger::present_log_line(line);
+    if let Some((prefix, _)) = line.split_once("]: ") {
+        format!("{}]: {}", prefix, language.text(display.message))
+    } else {
+        language.text(line).into_owned()
+    }
 }
 
 #[component]
@@ -68,14 +77,21 @@ pub fn App() -> Element {
     let mut doctor_report = use_signal(|| Option::<doctor::Report>::None);
     let mut startup_diagnosis_pending = use_signal(|| true);
     let mut doctor_notice = use_signal(|| Option::<String>::None);
-    let mut help_language = use_signal(|| doctor::HelpLanguage::English);
+    let mut language = use_signal(|| {
+        settings::load()
+            .map(|settings| settings.language)
+            .unwrap_or_else(|error| {
+                crate::log_error(format!("Failed to load language settings: {error}"));
+                Language::English
+            })
+    });
 
     // Action dispatcher coroutine — single place for all side-effects
     let actions = use_coroutine(move |mut rx: UnboundedReceiver<AppAction>| async move {
         while let Some(action) = rx.next().await {
             match action {
                 AppAction::OpenHelp(section) => {
-                    let url = help_language.read().url(section);
+                    let url = language.read().help_url(section);
                     if let Err(error) = open::that(&url) {
                         let message =
                             format!("Failed to open Help: {error}. Open {url} in your browser.");
@@ -97,7 +113,7 @@ pub fn App() -> Element {
                             for check in &report.checks {
                                 if check.status == doctor::Status::NeedsAttention {
                                     crate::log_error(format!(
-                                        "Doctor / {}: {} {}",
+                                        "Doctor / {}: {}\n{}",
                                         check.name, check.message, check.details
                                     ));
                                 }
@@ -108,7 +124,7 @@ pub fn App() -> Element {
                                 show_history.set(false);
                                 docker_prompt_dismissed.set(true);
                                 doctor_notice.set(Some(
-                                    "Some environment checks need your attention. Select English or Japanese Help, then open the setup steps for the failed item."
+                                    "Some environment checks need your attention. Open the setup steps for the failed item in Doctor."
                                         .to_string(),
                                 ));
                             }
@@ -431,11 +447,12 @@ pub fn App() -> Element {
 
             // ===== TOP BAR =====
             div { class: "flex items-center gap-4 py-2 px-5 border-b border-bkl-border bg-bkl-sidebar shrink-0",
+                style: "flex-wrap: wrap;",
 
                 div { class: "flex items-center gap-2.5",
                     button {
                         class: "brand-icon brand-icon-button",
-                        title: "Reset all settings",
+                        title: language.read().text("Reset all settings").into_owned(),
                         onclick: move |_| show_reset_confirm.set(true),
                         "B"
                     }
@@ -448,7 +465,7 @@ pub fn App() -> Element {
 
                     div { class: "flex items-center gap-1.5 ml-4 pl-4 border-l border-bkl-border",
                         span { class: "size-2 rounded-full inline-block shrink-0 {helpers::docker_dot_class(&docker_status.read())}" }
-                        span { class: "text-xs text-bkl-text-muted", "{docker_status}" }
+                        span { class: "text-xs text-bkl-text-muted", {language.read().text(&docker_status.read()).into_owned()} }
                     }
                 }
 
@@ -464,7 +481,7 @@ pub fn App() -> Element {
                             show_history.set(false);
                             docker_prompt_dismissed.set(true);
                         },
-                        if *show_doctor.read() { "Home" } else { "Doctor" }
+                        if *show_doctor.read() { {language.read().text("Home").into_owned()} } else { {language.read().text("Doctor").into_owned()} }
                     }
 
                     // History dropdown
@@ -475,13 +492,13 @@ pub fn App() -> Element {
                                 let current = *show_history.read();
                                 show_history.set(!current);
                             },
-                            "History"
+                            {language.read().text("History").into_owned()}
                         }
                         if *show_history.read() {
                             div { class: "dropdown-menu",
                                 if history.read().is_empty() {
                                     div { class: "p-4 text-center text-xs text-bkl-text-faint",
-                                        "No history yet"
+                                        {language.read().text("No history yet").into_owned()}
                                     }
                                 }
                                 for entry in history.read().iter() {
@@ -505,24 +522,39 @@ pub fn App() -> Element {
                         }
                     }
 
+                    label {
+                        r#for: "display-language",
+                        class: "text-xs text-bkl-text-muted",
+                        {language.read().text("Language").into_owned()}
+                    }
                     select {
+                        id: "display-language",
                         class: "input",
-                        aria_label: "Help language",
-                        value: if *help_language.read() == doctor::HelpLanguage::Japanese { "ja" } else { "en" },
+                        aria_label: language.read().text("Language").into_owned(),
+                        title: language.read().text("Language").into_owned(),
+                        value: if *language.read() == Language::Japanese { "ja" } else { "en" },
                         onchange: move |event| {
-                            help_language.set(if event.value() == "ja" {
-                                doctor::HelpLanguage::Japanese
+                            let selected = if event.value() == "ja" {
+                                Language::Japanese
                             } else {
-                                doctor::HelpLanguage::English
-                            });
+                                Language::English
+                            };
+                            match settings::save_language(selected) {
+                                Ok(()) => language.set(selected),
+                                Err(error) => {
+                                    let message = format!("Failed to save language settings: {error}");
+                                    crate::log_error(message.clone());
+                                    last_error.set(Some(message));
+                                }
+                            }
                         },
-                        option { value: "en", "Help: English" }
-                        option { value: "ja", "Help: 日本語" }
+                        option { value: "en", "English" }
+                        option { value: "ja", "日本語" }
                     }
                     button {
                         class: "btn-chip",
                         onclick: move |_| actions.send(AppAction::OpenHelp(None)),
-                        if *help_language.read() == doctor::HelpLanguage::Japanese { "日本語Help" } else { "Help" }
+                        {language.read().text("Help").into_owned()}
                     }
                 }
             }
@@ -533,50 +565,48 @@ pub fn App() -> Element {
                     style: "overflow-y: auto;",
                     button {
                         class: "btn-chip",
-                        title: "Return to Home",
+                        title: language.read().text("Return to Home").into_owned(),
                         onclick: move |_| show_doctor.set(false),
-                        "\u{2190} Back to Home"
+                        {language.read().text("\u{2190} Back to Home").into_owned()}
                     }
                     div { class: "flex items-center justify-between gap-3",
                         div {
-                            h1 { class: "m-0 text-[15px] font-bold text-bkl-text", "Doctor" }
+                            h1 { class: "m-0 text-[15px] font-bold text-bkl-text", {language.read().text("Doctor").into_owned()} }
                             p { class: "text-xs text-bkl-text-muted",
-                                "Check your development tools and Docker runtime. No projects or settings are changed."
+                                {language.read().text("Check your development tools and Docker runtime. No projects or settings are changed.").into_owned()}
                             }
                         }
                         button {
                             class: "btn-primary",
                             disabled: *diagnosing.read(),
                             onclick: move |_| actions.send(AppAction::DiagnoseEnvironment { startup: false }),
-                            if *diagnosing.read() { "Checking..." } else { "Run checks" }
+                            if *diagnosing.read() { {language.read().text("Checking...").into_owned()} } else { {language.read().text("Run checks").into_owned()} }
                         }
                     }
                     if *diagnosing.read() {
                         p { role: "status", class: "text-xs text-bkl-text-muted",
-                            "Checking VS Code, Dev Containers, and Docker. Each command has a 15-second timeout."
+                            {language.read().text("Checking VS Code, Dev Containers, and Docker. Each command has a 15-second timeout.").into_owned()}
                         }
                     }
                     if let Some(report) = doctor_report.read().clone() {
                         section { class: "card mt-5",
                             p { role: "status", class: "text-[13px] font-semibold text-bkl-text",
-                                if *diagnosing.read() { "Previous result (checks are running)" } else { "{report.summary()}" }
+                                if *diagnosing.read() { {language.read().text("Previous result (checks are running)").into_owned()} } else { {language.read().text(report.summary()).into_owned()} }
                             }
-                            p { class: "text-xs text-bkl-text-faint", "Last checked: {report.checked_at}" }
+                            p { class: "text-xs text-bkl-text-faint",
+                                {language.read().text(&format!("Last checked: {}", report.checked_at)).into_owned()}
+                            }
                             p { class: "text-xs text-bkl-text-muted",
-                                "This checks host environment readiness only, not project configuration, container connections, or USB devices."
+                                {language.read().text("This checks host environment readiness only, not project configuration, container connections, or USB devices.").into_owned()}
                             }
                             if !report.ready() {
                                 p { class: "text-xs text-bkl-text-muted",
-                                    if *help_language.read() == doctor::HelpLanguage::Japanese {
-                                        "「Needs attention」の項目から「解決手順を読む」を押してください。日本語Helpの該当箇所がブラウザーで開きます。手順を終えたら、この画面の Run checks で再確認してください。"
-                                    } else {
-                                        "Start with a Needs attention item and click Read setup steps. Help opens at the matching section in your browser. Follow the steps, return here, and click Run checks."
-                                    }
+                                    {language.read().text("Start with a Needs attention item and click Read setup steps. Help opens at the matching section in your browser. Follow the steps, return here, and click Run checks.").into_owned()}
                                 }
                                 button {
                                     class: "btn-chip",
                                     onclick: move |_| actions.send(AppAction::OpenHelp(Some("doctor-start-here"))),
-                                    if *help_language.read() == doctor::HelpLanguage::Japanese { "はじめての環境セットアップ" } else { "Start here: environment setup" }
+                                    {language.read().text("Start here: environment setup").into_owned()}
                                 }
                             }
                             button {
@@ -584,7 +614,7 @@ pub fn App() -> Element {
                                 onclick: move |_| {
                                     if let Some(report) = doctor_report.read().as_ref() {
                                         let result = arboard::Clipboard::new()
-                                            .and_then(|mut clipboard| clipboard.set_text(report.text()));
+                                            .and_then(|mut clipboard| clipboard.set_text(report.localized_text(*language.read())));
                                         if let Err(error) = result {
                                             let message = format!("Failed to copy Doctor report: {error}");
                                             crate::log_error(message.clone());
@@ -592,13 +622,13 @@ pub fn App() -> Element {
                                         }
                                     }
                                 },
-                                "Copy report"
+                                {language.read().text("Copy report").into_owned()}
                             }
                         }
                         for check in report.checks {
                             section { class: "card mt-5",
                                 div { class: "flex items-center justify-between gap-3",
-                                    h2 { class: "m-0 text-[13px] font-bold text-bkl-text", "{check.name}" }
+                                    h2 { class: "m-0 text-[13px] font-bold text-bkl-text", {language.read().text(check.name).into_owned()} }
                                     span {
                                         class: "text-xs",
                                         style: match check.status {
@@ -606,21 +636,21 @@ pub fn App() -> Element {
                                             doctor::Status::NeedsAttention => "color: #ef4444;",
                                             doctor::Status::NotChecked => "color: #8a8494;",
                                         },
-                                        "{check.status.label()}"
+                                        {language.read().text(check.status.label()).into_owned()}
                                     }
                                 }
-                                p { class: "text-xs text-bkl-text-muted", "{check.message}" }
+                                p { class: "text-xs text-bkl-text-muted", {language.read().text(&check.message).into_owned()} }
                                 if !check.details.is_empty() {
                                     details {
-                                        summary { class: "text-xs text-bkl-text-muted", "Details" }
-                                        pre { class: "text-xs text-bkl-text-muted", style: "white-space: pre-wrap; overflow-wrap: anywhere;", "{check.details}" }
+                                        summary { class: "text-xs text-bkl-text-muted", {language.read().text("Details").into_owned()} }
+                                        pre { class: "text-xs text-bkl-text-muted", style: "white-space: pre-wrap; overflow-wrap: anywhere;", {language.read().text(&check.details).into_owned()} }
                                     }
                                 }
                                 if let Some(section) = check.help_section {
                                     button {
                                         class: "btn-chip",
                                         onclick: move |_| actions.send(AppAction::OpenHelp(Some(section))),
-                                        if *help_language.read() == doctor::HelpLanguage::Japanese { "解決手順を読む（日本語Help）" } else { "Read setup steps (English Help)" }
+                                        {language.read().text("Read setup steps").into_owned()}
                                     }
                                 }
                             }
@@ -628,12 +658,12 @@ pub fn App() -> Element {
                     } else {
                         section { class: "card mt-5",
                             p { class: "text-xs text-bkl-text-muted",
-                                "Run checks to see what is ready and what needs attention. Docker does not need to be running to start the diagnosis."
+                                {language.read().text("Run checks to see what is ready and what needs attention. Docker does not need to be running to start the diagnosis.").into_owned()}
                             }
                             button {
                                 class: "btn-chip",
                                 onclick: move |_| actions.send(AppAction::OpenHelp(Some("doctor-start-here"))),
-                                if *help_language.read() == doctor::HelpLanguage::Japanese { "はじめての環境セットアップ" } else { "Start here: environment setup" }
+                                {language.read().text("Start here: environment setup").into_owned()}
                             }
                         }
                     }
@@ -647,16 +677,16 @@ pub fn App() -> Element {
                     // ---- Create Project ----
                     section { class: "card",
                         h2 { class: "m-0 text-[15px] font-bold text-bkl-text tracking-[0.02em]",
-                            "Create Project"
+                            {language.read().text("Create Project").into_owned()}
                         }
                         p { class: "mt-0.5 text-xs text-bkl-text-muted",
-                            "Generate a template-based project and open it in VS Code."
+                            {language.read().text("Generate a template-based project and open it in VS Code.").into_owned()}
                         }
 
                         div { class: "mt-4",
                             div { class: "flex flex-wrap items-center gap-2",
                                 label { class: "text-[13px] font-semibold text-bkl-text-muted",
-                                    "Project name"
+                                    {language.read().text("Project name").into_owned()}
                                 }
                                 input {
                                     class: "input",
@@ -679,7 +709,7 @@ pub fn App() -> Element {
                                         let open_after = *vscode_open_enabled.read();
                                         spawn(async move {
                                             if let Some(path) =
-                                                rfd::AsyncFileDialog::new().pick_folder().await
+                                                rfd::AsyncFileDialog::new().set_title(language.read().text("Choose project folder").into_owned()).pick_folder().await
                                             {
                                                 actions.send(AppAction::CreateProject {
                                                     name,
@@ -694,7 +724,7 @@ pub fn App() -> Element {
                                             }
                                         });
                                     },
-                                    "Create"
+                                    {language.read().text("Create").into_owned()}
                                 }
                             }
 
@@ -707,30 +737,30 @@ pub fn App() -> Element {
                                     },
                                 }
                                 span { class: "text-[13px] text-bkl-text-muted",
-                                    "Specify template version"
+                                    {language.read().text("Specify template version").into_owned()}
                                 }
                             }
 
                             if *show_version_opts.read() {
                                 div { class: "flex flex-wrap items-center gap-2",
                                     label { class: "text-[13px] font-semibold text-bkl-text-muted",
-                                        "Version"
+                                        {language.read().text("Version").into_owned()}
                                     }
                                     div { class: "flex gap-1",
                                         button {
                                             class: if !*template_ref_is_tag.read() { "btn-chip btn-chip-active" } else { "btn-chip" },
                                             onclick: move |_| template_ref_is_tag.set(false),
-                                            "Branch"
+                                            {language.read().text("Branch").into_owned()}
                                         }
                                         button {
                                             class: if *template_ref_is_tag.read() { "btn-chip btn-chip-active" } else { "btn-chip" },
                                             onclick: move |_| template_ref_is_tag.set(true),
-                                            "Tag"
+                                            {language.read().text("Tag").into_owned()}
                                         }
                                     }
                                     input {
                                         class: "input",
-                                        placeholder: if *template_ref_is_tag.read() { "e.g. v1.0.0 (blank = latest)" } else { "e.g. main (blank = HEAD)" },
+                                        placeholder: if *template_ref_is_tag.read() { language.read().text("e.g. v1.0.0 (blank = latest)").into_owned() } else { language.read().text("e.g. main (blank = HEAD)").into_owned() },
                                         value: "{template_ref_value}",
                                         oninput: move |ev| template_ref_value.set(ev.value()),
                                     }
@@ -746,14 +776,14 @@ pub fn App() -> Element {
                                     },
                                 }
                                 span { class: "text-[13px] text-bkl-text-muted",
-                                    "Open VS Code after creation"
+                                    {language.read().text("Open VS Code after creation").into_owned()}
                                 }
                             }
 
                             a {
                                 class: "template-link",
                                 href: "{parameter::TEMPLATE_URL}",
-                                "View template repository"
+                                {language.read().text("View template repository").into_owned()}
                             }
                         }
                     }
@@ -763,19 +793,19 @@ pub fn App() -> Element {
                         div { class: "flex items-center justify-between",
                             div {
                                 h2 { class: "m-0 text-[15px] font-bold text-bkl-text tracking-[0.02em]",
-                                    "probe-rs DAP Server"
+                                    {language.read().text("probe-rs DAP Server").into_owned()}
                                 }
                                 p { class: "mt-0.5 text-xs text-bkl-text-muted",
-                                    "Launch a local DAP server for debugging."
+                                    {language.read().text("Launch a local DAP server for debugging.").into_owned()}
                                 }
                             }
                             div { class: "flex items-center gap-1.5 text-[11px] text-bkl-text-muted",
                                 span { class: "size-2 rounded-full inline-block shrink-0 {helpers::dap_dot_class(*dap_running.read())}" }
                                 span {
                                     if *dap_running.read() {
-                                        "Running"
+                                        {language.read().text("Running").into_owned()}
                                     } else {
-                                        "Stopped"
+                                        {language.read().text("Stopped").into_owned()}
                                     }
                                 }
                             }
@@ -785,16 +815,16 @@ pub fn App() -> Element {
                             div { class: "mb-3.5 pb-3.5 border-b border-bkl-border",
                                 div { class: "flex items-center justify-between",
                                     span { class: "text-[13px] font-semibold text-bkl-text-muted",
-                                        "Connected Device"
+                                        {language.read().text("Connected Device").into_owned()}
                                     }
                                     button {
                                         class: "btn-chip",
                                         disabled: *detecting.read(),
                                         onclick: move |_| actions.send(AppAction::DetectDevice),
                                         if *detecting.read() {
-                                            "Detecting..."
+                                            {language.read().text("Detecting...").into_owned()}
                                         } else {
-                                            "Detect"
+                                            {language.read().text("Detect").into_owned()}
                                         }
                                     }
                                 }
@@ -802,26 +832,26 @@ pub fn App() -> Element {
                                     div { class: "probe-info-grid",
                                         div { class: "flex items-baseline gap-2 min-w-0",
                                             span { class: "text-[10px] font-bold text-bkl-text-faint uppercase tracking-[0.04em] shrink-0",
-                                                "Probe"
+                                                {language.read().text("Probe").into_owned()}
                                             }
                                             span { class: "text-xs text-bkl-text-muted font-mono overflow-hidden text-ellipsis whitespace-nowrap",
-                                                "{probe_name}"
+                                                {language.read().text(&probe_name.read()).into_owned()}
                                             }
                                         }
                                         if !chip_name.read().is_empty() {
                                             div { class: "flex items-baseline gap-2 min-w-0",
                                                 span { class: "text-[10px] font-bold text-bkl-text-faint uppercase tracking-[0.04em] shrink-0",
-                                                    "Chip"
+                                                    {language.read().text("Chip").into_owned()}
                                                 }
                                                 span { class: "text-xs font-mono font-semibold text-bkl-orange-light overflow-hidden text-ellipsis whitespace-nowrap",
-                                                    "{chip_name}"
+                                                    {language.read().text(&chip_name.read()).into_owned()}
                                                 }
                                             }
                                         }
                                         if !chip_cores.read().is_empty() {
                                             div { class: "flex items-baseline gap-2 min-w-0",
                                                 span { class: "text-[10px] font-bold text-bkl-text-faint uppercase tracking-[0.04em] shrink-0",
-                                                    "Core"
+                                                    {language.read().text("Core").into_owned()}
                                                 }
                                                 span { class: "text-xs text-bkl-text-muted font-mono overflow-hidden text-ellipsis whitespace-nowrap",
                                                     "{chip_cores}"
@@ -834,7 +864,7 @@ pub fn App() -> Element {
 
                             div { class: "flex flex-wrap items-center gap-2",
                                 label { class: "text-[11px] font-semibold text-bkl-text-muted",
-                                    "Bind IP"
+                                    {language.read().text("Bind IP").into_owned()}
                                 }
                                 input {
                                     class: "input min-w-[120px] w-[120px]",
@@ -843,7 +873,7 @@ pub fn App() -> Element {
                                     oninput: move |event| dap_ip.set(event.value()),
                                 }
                                 label { class: "text-[11px] font-semibold text-bkl-text-muted",
-                                    "DAP"
+                                    {language.read().text("DAP").into_owned()}
                                 }
                                 input {
                                     class: "input min-w-[76px] w-[76px]",
@@ -852,7 +882,7 @@ pub fn App() -> Element {
                                     oninput: move |event| dap_port.set(event.value()),
                                 }
                                 label { class: "text-[11px] font-semibold text-bkl-text-muted",
-                                    "Upload"
+                                    {language.read().text("Upload").into_owned()}
                                 }
                                 input {
                                     class: "input min-w-[76px] w-[76px]",
@@ -869,17 +899,17 @@ pub fn App() -> Element {
                                         dap_port: dap_port.read().clone(),
                                         upload_port: upload_port.read().clone(),
                                     })),
-                                    "Run"
+                                    {language.read().text("Run").into_owned()}
                                 }
                                 button {
                                     class: "btn-danger",
                                     disabled: !*dap_running.read(),
                                     onclick: move |_| actions.send(AppAction::StopDap),
-                                    if *dap_stopping.read() { "Stopping..." } else { "Stop" }
+                                    if *dap_stopping.read() { {language.read().text("Stopping...").into_owned()} } else { {language.read().text("Stop").into_owned()} }
                                 }
                             }
                             p { class: "mt-3 text-[11px] text-bkl-text-faint",
-                                "Dev Container connects through host.docker.internal. Changes apply on Run."
+                                {language.read().text("Dev Container connects through host.docker.internal. Changes apply on Run.").into_owned()}
                             }
                         }
                     }
@@ -890,21 +920,23 @@ pub fn App() -> Element {
                     div { class: "flex items-center justify-between",
                         div {
                             h2 { class: "m-0 text-[15px] font-bold text-bkl-text tracking-[0.02em]",
-                                "Log"
+                                {language.read().text("Log").into_owned()}
                             }
                             p { class: "mt-0.5 text-xs text-bkl-text-muted",
-                                "Build and runtime output."
+                                {language.read().text("Build and runtime output.").into_owned()}
                             }
                         }
                         button {
                             class: "btn-chip",
                             onclick: move |_| {
-                                let text = logs.read().join("\n");
-                                if let Ok(mut cb) = arboard::Clipboard::new() {
-                                    let _ = cb.set_text(text);
+                                let text = logs.read().iter().map(|line| localized_log_line(line, *language.read())).collect::<Vec<_>>().join("\n");
+                                if let Err(error) = arboard::Clipboard::new().and_then(|mut clipboard| clipboard.set_text(text)) {
+                                    let message = format!("Failed to copy logs: {error}");
+                                    crate::log_error(message.clone());
+                                    last_error.set(Some(message));
                                 }
                             },
-                            "Copy"
+                            {language.read().text("Copy").into_owned()}
                         }
                     }
                     div { class: "log-viewer",
@@ -919,9 +951,9 @@ pub fn App() -> Element {
                                             "{display.timestamp}"
                                         }
                                         span { class: "log-badge {display.badge_class}",
-                                            "{display.level}"
+                                            {language.read().text(display.level).into_owned()}
                                         }
-                                        span { class: "break-all", "{display.message}" }
+                                        span { class: "break-all", {language.read().text(display.message).into_owned()} }
                                     }
                                 }
                             }
@@ -939,13 +971,13 @@ pub fn App() -> Element {
                     style: "z-index: 150;",
                     div { class: "flex items-start justify-between gap-3",
                         span {
-                            if last_error.read().is_some() { "[ERROR] {message}" } else { "[Doctor] {message}" }
+                            {format!("[{}] {}", language.read().text(if last_error.read().is_some() { "ERROR" } else { "Doctor" }), language.read().text(&message))}
                         }
                         button {
                             class: "btn-chip",
                             style: "flex-shrink: 0; min-width: 32px; min-height: 32px; font-size: 20px;",
-                            title: "Dismiss notification",
-                            aria_label: "Dismiss notification",
+                            title: language.read().text("Dismiss notification").into_owned(),
+                            aria_label: language.read().text("Dismiss notification").into_owned(),
                             onclick: move |_| {
                                 if last_error.peek().is_some() {
                                     last_error.set(None);
@@ -960,7 +992,7 @@ pub fn App() -> Element {
                         button {
                             class: "btn-chip",
                             onclick: move |_| actions.send(AppAction::OpenHelp(Some("doctor-start-here"))),
-                            if *help_language.read() == doctor::HelpLanguage::Japanese { "日本語Helpを開く" } else { "Open English Help" }
+                            {language.read().text("Open Help").into_owned()}
                         }
                     }
                 }
@@ -975,18 +1007,18 @@ pub fn App() -> Element {
                         div { class: "flex justify-end",
                             button {
                                 class: "btn-chip",
-                                title: "Dismiss Docker startup prompt",
-                                aria_label: "Dismiss Docker startup prompt",
+                                title: language.read().text("Dismiss Docker startup prompt").into_owned(),
+                                aria_label: language.read().text("Dismiss Docker startup prompt").into_owned(),
                                 onclick: move |_| docker_prompt_dismissed.set(true),
                                 "\u{00d7}"
                             }
                         }
                         h3 { class: "m-0 mb-3 text-base font-bold text-bkl-text", "Rancher Desktop" }
                         p { class: "m-0 mb-1 text-[13px] text-bkl-text-muted",
-                            "Docker is not running."
+                            {language.read().text("Docker is not running.").into_owned()}
                         }
                         p { class: "m-0 mb-1 text-[13px] text-bkl-text-muted",
-                            "Start Rancher Desktop now?"
+                            {language.read().text("Start Rancher Desktop now?").into_owned()}
                         }
                         div { class: "flex gap-2 mt-5",
                             button {
@@ -995,12 +1027,12 @@ pub fn App() -> Element {
                                     actions.send(AppAction::StartDocker);
                                     docker_prompt_dismissed.set(true);
                                 },
-                                "Start"
+                                {language.read().text("Start").into_owned()}
                             }
                             button {
                                 class: "btn-chip",
                                 onclick: move |_| docker_prompt_dismissed.set(true),
-                                "Not now"
+                                {language.read().text("Not now").into_owned()}
                             }
                         }
                     }
@@ -1014,18 +1046,18 @@ pub fn App() -> Element {
                         div { class: "flex justify-end",
                             button {
                                 class: "btn-chip",
-                                title: "Cancel reset",
-                                aria_label: "Cancel reset",
+                                title: language.read().text("Cancel reset").into_owned(),
+                                aria_label: language.read().text("Cancel reset").into_owned(),
                                 onclick: move |_| show_reset_confirm.set(false),
                                 "\u{00d7}"
                             }
                         }
-                        h3 { class: "m-0 mb-3 text-base font-bold text-bkl-text", "Reset Settings" }
+                        h3 { class: "m-0 mb-3 text-base font-bold text-bkl-text", {language.read().text("Reset Settings").into_owned()} }
                         p { class: "m-0 mb-1 text-[13px] text-bkl-text-muted",
-                            "All settings including project history will be cleared."
+                            {language.read().text("All settings including project history will be cleared.").into_owned()}
                         }
                         p { class: "m-0 mb-1 text-[13px] text-bkl-text-muted",
-                            "The application will restart from the splash screen."
+                            {language.read().text("The application will restart from the splash screen.").into_owned()}
                         }
                         div { class: "flex gap-2 mt-5",
                             button {
@@ -1033,6 +1065,7 @@ pub fn App() -> Element {
                                 onclick: move |_| {
                                     match settings::reset_all() {
                                         Ok(()) => {
+                                            language.set(Language::English);
                                             history.set(vec![]);
                                             show_reset_confirm.set(false);
                                             show_splash.set(true);
@@ -1043,12 +1076,12 @@ pub fn App() -> Element {
                                         }
                                     }
                                 },
-                                "Reset"
+                                {language.read().text("Reset").into_owned()}
                             }
                             button {
                                 class: "btn-chip",
                                 onclick: move |_| show_reset_confirm.set(false),
-                                "Cancel"
+                                {language.read().text("Cancel").into_owned()}
                             }
                         }
                     }

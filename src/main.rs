@@ -6,6 +6,7 @@ mod cmd;
 mod doctor;
 mod helpers;
 mod host_network;
+mod i18n;
 mod logger;
 mod parameter;
 mod settings;
