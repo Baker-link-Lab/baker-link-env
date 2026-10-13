@@ -302,9 +302,9 @@ impl ProbeRsDapServer {
         if port == upload_port {
             return Err("DAP port and ELF upload port must be different".to_string());
         }
-        TcpListener::bind(address)
+        check_addr_available_with_retry(address, std::time::Duration::from_millis(1500))
             .map_err(|error| format!("DAP port {port} is unavailable: {error}"))?;
-        TcpListener::bind(upload_address)
+        check_addr_available_with_retry(upload_address, std::time::Duration::from_millis(1500))
             .map_err(|error| format!("ELF upload port {upload_port} is unavailable: {error}"))?;
 
         let artifact_root = crate::artifact::root_dir().map_err(|error| error.to_string())?;
@@ -432,8 +432,55 @@ fn spawn_dap_server_thread(
         }
         shutdown_task.cancel();
         let _ = upload_handle.join();
+        drop(runtime);
+
+        // Wait for both sockets to be completely released by the OS and tiny_http worker threads
+        let _ = wait_for_addr_available(address, std::time::Duration::from_secs(3));
+        let _ = wait_for_addr_available(upload_address, std::time::Duration::from_secs(3));
+
         let _ = completion_tx.send(());
     })
+}
+
+fn wait_for_addr_available(addr: SocketAddr, timeout: std::time::Duration) -> bool {
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        match TcpListener::bind(addr) {
+            Ok(listener) => {
+                drop(listener);
+                std::thread::sleep(std::time::Duration::from_millis(30));
+                return true;
+            }
+            Err(_) => {
+                if std::time::Instant::now() >= deadline {
+                    return false;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(30));
+            }
+        }
+    }
+}
+
+fn check_addr_available_with_retry(
+    addr: SocketAddr,
+    timeout: std::time::Duration,
+) -> std::io::Result<()> {
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        match TcpListener::bind(addr) {
+            Ok(listener) => {
+                drop(listener);
+                std::thread::sleep(std::time::Duration::from_millis(30));
+                return Ok(());
+            }
+            Err(err) => {
+                if std::time::Instant::now() >= deadline {
+                    return Err(err);
+                }
+                std::thread::sleep(std::time::Duration::from_millis(30));
+            }
+        }
+    }
 }
 
 #[cfg(target_os = "windows")]

@@ -68,6 +68,7 @@ pub fn App() -> Element {
     });
     let mut show_reset_confirm = use_signal(|| false);
     let mut show_version_opts = use_signal(|| false);
+    let mut show_dap_advanced = use_signal(|| false);
     let mut probe_name = use_signal(String::new);
     let mut chip_name = use_signal(String::new);
     let mut chip_cores = use_signal(String::new);
@@ -862,54 +863,81 @@ pub fn App() -> Element {
                                 }
                             }
 
-                            div { class: "flex flex-wrap items-center gap-2",
-                                label { class: "text-[11px] font-semibold text-bkl-text-muted",
-                                    {language.read().text("Bind IP").into_owned()}
-                                }
-                                input {
-                                    class: "input min-w-[120px] w-[120px]",
-                                    value: "{dap_ip}",
-                                    disabled: *dap_running.read() || *dap_stopping.read(),
-                                    oninput: move |event| dap_ip.set(event.value()),
-                                }
-                                label { class: "text-[11px] font-semibold text-bkl-text-muted",
-                                    {language.read().text("DAP").into_owned()}
-                                }
-                                input {
-                                    class: "input min-w-[76px] w-[76px]",
-                                    value: "{dap_port}",
-                                    disabled: *dap_running.read() || *dap_stopping.read(),
-                                    oninput: move |event| dap_port.set(event.value()),
-                                }
-                                label { class: "text-[11px] font-semibold text-bkl-text-muted",
-                                    {language.read().text("Upload").into_owned()}
-                                }
-                                input {
-                                    class: "input min-w-[76px] w-[76px]",
-                                    value: "{upload_port}",
-                                    disabled: *dap_running.read() || *dap_stopping.read(),
-                                    oninput: move |event| upload_port.set(event.value()),
+                            div { class: "flex items-center justify-between gap-3 flex-wrap",
+                                div { class: "flex items-center gap-2",
+                                    button {
+                                        class: "btn-primary",
+                                        disabled: *dap_running.read() || *dap_stopping.read(),
+                                        onclick: move |_| actions.send(AppAction::StartDap(settings::ServerConfig {
+                                            bind_ip: dap_ip.read().clone(),
+                                            connect_host: server_config.connect_host.clone(),
+                                            dap_port: dap_port.read().clone(),
+                                            upload_port: upload_port.read().clone(),
+                                        })),
+                                        {language.read().text("Run").into_owned()}
+                                    }
+                                    button {
+                                        class: "btn-danger",
+                                        disabled: !*dap_running.read() || *dap_stopping.read(),
+                                        onclick: move |_| actions.send(AppAction::StopDap),
+                                        if *dap_stopping.read() { {language.read().text("Stopping...").into_owned()} } else { {language.read().text("Stop").into_owned()} }
+                                    }
                                 }
                                 button {
-                                    class: "btn-primary",
-                                    disabled: *dap_running.read() || *dap_stopping.read(),
-                                    onclick: move |_| actions.send(AppAction::StartDap(settings::ServerConfig {
-                                        bind_ip: dap_ip.read().clone(),
-                                        connect_host: server_config.connect_host.clone(),
-                                        dap_port: dap_port.read().clone(),
-                                        upload_port: upload_port.read().clone(),
-                                    })),
-                                    {language.read().text("Run").into_owned()}
-                                }
-                                button {
-                                    class: "btn-danger",
-                                    disabled: !*dap_running.read(),
-                                    onclick: move |_| actions.send(AppAction::StopDap),
-                                    if *dap_stopping.read() { {language.read().text("Stopping...").into_owned()} } else { {language.read().text("Stop").into_owned()} }
+                                    class: "btn-chip",
+                                    onclick: move |_| {
+                                        let current = *show_dap_advanced.peek();
+                                        show_dap_advanced.set(!current);
+                                    },
+                                    if *show_dap_advanced.read() {
+                                        {language.read().text("Hide Advanced Settings").into_owned()}
+                                    } else {
+                                        {language.read().text("Advanced Settings").into_owned()}
+                                    }
                                 }
                             }
-                            p { class: "mt-3 text-[11px] text-bkl-text-faint",
-                                {language.read().text("Dev Container connects through host.docker.internal. Changes apply on Run.").into_owned()}
+
+                            if *show_dap_advanced.read() {
+                                div { class: "mt-3.5 p-3 rounded-[10px] bg-bkl-surface-inset border border-bkl-border flex flex-col gap-2.5",
+                                    div { class: "grid grid-cols-3 gap-2.5 max-[520px]:grid-cols-1",
+                                        div { class: "flex flex-col gap-1",
+                                            label { class: "text-[11px] font-semibold text-bkl-text-muted",
+                                                {language.read().text("Bind IP").into_owned()}
+                                            }
+                                            input {
+                                                class: "input min-w-0 w-full text-xs",
+                                                value: "{dap_ip}",
+                                                disabled: *dap_running.read() || *dap_stopping.read(),
+                                                oninput: move |event| dap_ip.set(event.value()),
+                                            }
+                                        }
+                                        div { class: "flex flex-col gap-1",
+                                            label { class: "text-[11px] font-semibold text-bkl-text-muted",
+                                                {language.read().text("DAP Port").into_owned()}
+                                            }
+                                            input {
+                                                class: "input min-w-0 w-full text-xs",
+                                                value: "{dap_port}",
+                                                disabled: *dap_running.read() || *dap_stopping.read(),
+                                                oninput: move |event| dap_port.set(event.value()),
+                                            }
+                                        }
+                                        div { class: "flex flex-col gap-1",
+                                            label { class: "text-[11px] font-semibold text-bkl-text-muted",
+                                                {language.read().text("Upload Port").into_owned()}
+                                            }
+                                            input {
+                                                class: "input min-w-0 w-full text-xs",
+                                                value: "{upload_port}",
+                                                disabled: *dap_running.read() || *dap_stopping.read(),
+                                                oninput: move |event| upload_port.set(event.value()),
+                                            }
+                                        }
+                                    }
+                                    p { class: "m-0 text-[11px] text-bkl-text-faint",
+                                        {language.read().text("Dev Container connects through host.docker.internal. Changes apply on Run.").into_owned()}
+                                    }
+                                }
                             }
                         }
                     }
@@ -926,17 +954,31 @@ pub fn App() -> Element {
                                 {language.read().text("Build and runtime output.").into_owned()}
                             }
                         }
-                        button {
-                            class: "btn-chip",
-                            onclick: move |_| {
-                                let text = logs.read().iter().map(|line| localized_log_line(line, *language.read())).collect::<Vec<_>>().join("\n");
-                                if let Err(error) = arboard::Clipboard::new().and_then(|mut clipboard| clipboard.set_text(text)) {
-                                    let message = format!("Failed to copy logs: {error}");
-                                    crate::log_error(message.clone());
-                                    last_error.set(Some(message));
-                                }
-                            },
-                            {language.read().text("Copy").into_owned()}
+                        div { class: "flex items-center gap-2",
+                            button {
+                                class: "btn-chip",
+                                disabled: logs.read().is_empty(),
+                                onclick: move |_| {
+                                    logs.set(Vec::new());
+                                    if let Ok(mut buffer) = crate::display_buffer().lock() {
+                                        buffer.clear();
+                                    }
+                                },
+                                {language.read().text("Clear").into_owned()}
+                            }
+                            button {
+                                class: "btn-chip",
+                                disabled: logs.read().is_empty(),
+                                onclick: move |_| {
+                                    let text = logs.read().iter().map(|line| localized_log_line(line, *language.read())).collect::<Vec<_>>().join("\n");
+                                    if let Err(error) = arboard::Clipboard::new().and_then(|mut clipboard| clipboard.set_text(text)) {
+                                        let message = format!("Failed to copy logs: {error}");
+                                        crate::log_error(message.clone());
+                                        last_error.set(Some(message));
+                                    }
+                                },
+                                {language.read().text("Copy").into_owned()}
+                            }
                         }
                     }
                     div { class: "log-viewer",
