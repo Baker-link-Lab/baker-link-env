@@ -46,8 +46,40 @@ impl DisplayBuffer {
 
     pub fn channel_recv(&mut self) {
         for msg in self.rx.try_iter() {
-            self.buffer.push(msg);
+            let formatted = if msg.len() >= 23 && is_valid_log_timestamp(&msg[..23]) {
+                msg
+            } else {
+                let (level, clean_msg) = if let Some(stripped) = msg.strip_prefix("[ERROR] ") {
+                    (log::Level::Error, stripped)
+                } else if let Some(stripped) = msg.strip_prefix("[INFO] ") {
+                    (log::Level::Info, stripped)
+                } else if msg.starts_with("[ERROR]") {
+                    (
+                        log::Level::Error,
+                        msg.trim_start_matches("[ERROR]").trim_start(),
+                    )
+                } else if msg.starts_with("[INFO]") {
+                    (
+                        log::Level::Info,
+                        msg.trim_start_matches("[INFO]").trim_start(),
+                    )
+                } else {
+                    (log::Level::Info, msg.as_str())
+                };
+                format!(
+                    "{}[{}]: {}",
+                    Self::get_timestamp(),
+                    level.as_str(),
+                    clean_msg
+                )
+            };
+            self.buffer.push(formatted);
         }
+    }
+
+    pub fn clear(&mut self) {
+        self.buffer.clear();
+        while self.rx.try_recv().is_ok() {}
     }
 
     pub fn log_info(&mut self, msg: String) {
@@ -94,13 +126,23 @@ pub fn present_log_line(line: &str) -> LogLine<'_> {
     } else {
         ("log-debug", "log-badge-default", "LOG")
     };
-    let timestamp = line.get(..23).unwrap_or("");
-    let message = if let Some(position) = line.find("]: ") {
-        &line[position + 3..]
-    } else if line.len() > 23 {
-        line.get(23..).unwrap_or(line)
+    let has_timestamp = line.len() >= 23 && is_valid_log_timestamp(&line[..23]);
+    let (timestamp, message) = if has_timestamp {
+        let ts = &line[..23];
+        let rest = &line[23..];
+        let msg = if let Some(position) = rest.find("]: ") {
+            &rest[position + 3..]
+        } else {
+            rest.trim_start()
+        };
+        (ts, msg)
     } else {
-        line
+        let msg = if let Some(position) = line.find("]: ") {
+            &line[position + 3..]
+        } else {
+            line
+        };
+        ("", msg)
     };
 
     LogLine {
@@ -110,6 +152,26 @@ pub fn present_log_line(line: &str) -> LogLine<'_> {
         timestamp,
         message,
     }
+}
+
+fn is_valid_log_timestamp(s: &str) -> bool {
+    if s.len() != 23 {
+        return false;
+    }
+    let b = s.as_bytes();
+    b[0..4].iter().all(u8::is_ascii_digit)
+        && b[4] == b'-'
+        && b[5..7].iter().all(u8::is_ascii_digit)
+        && b[7] == b'-'
+        && b[8..10].iter().all(u8::is_ascii_digit)
+        && b[10] == b' '
+        && b[11..13].iter().all(u8::is_ascii_digit)
+        && b[13] == b':'
+        && b[14..16].iter().all(u8::is_ascii_digit)
+        && b[16] == b':'
+        && b[17..19].iter().all(u8::is_ascii_digit)
+        && b[19] == b'.'
+        && b[20..23].iter().all(u8::is_ascii_digit)
 }
 
 #[cfg(test)]
@@ -133,5 +195,16 @@ mod tests {
 
         assert_eq!(display.timestamp, "");
         assert_eq!(display.message, "短い");
+    }
+
+    #[test]
+    fn handles_unformatted_log_line_without_splitting_text() {
+        let display = present_log_line("ELF upload server listening on 0.0.0.0:50002");
+
+        assert_eq!(display.timestamp, "");
+        assert_eq!(
+            display.message,
+            "ELF upload server listening on 0.0.0.0:50002"
+        );
     }
 }

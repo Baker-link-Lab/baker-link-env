@@ -532,7 +532,7 @@ dependencies = [
 
 [[package]]
 name = "baker-link-env"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "anyhow",
  "arboard",
