@@ -74,6 +74,17 @@ fn template_values<'a>(text: &'a str, parts: &[&str]) -> Option<Vec<&'a str>> {
 }
 
 const TEXT: &[(&str, &str)] = &[
+    ("ELF Cache", "ELFキャッシュ"),
+    ("Oldest unused artifacts are removed when capacity is exceeded. No expiry. Active debug artifacts are protected from deletion.", "容量超過時は最後の利用が古い未使用ELFから削除します。保存期限はありません。デバッグ中のELFは削除しません。"),
+    ("Capacity (MiB)", "容量上限（MiB）"),
+    ("Save capacity", "容量を保存"),
+    ("Refresh usage", "使用量を更新"),
+    ("Delete unused cache", "未使用キャッシュを削除"),
+    ("Artifact cache updated", "ELFキャッシュを更新しました"),
+    ("Cache capacity must be a whole number of MiB", "容量上限はMiB単位の整数で入力してください"),
+    ("Cache capacity must be between 128 and 1048576 MiB", "容量上限は128～1048576 MiBで指定してください"),
+    ("Artifact exceeds the configured cache capacity", "ELFが設定されたキャッシュ容量上限を超えています"),
+    ("Artifact cache is full: active artifacts and the upload exceed the limit. Stop debug sessions or increase the cache limit", "使用中のELFとアップロードするELFの合計が容量上限を超えています。デバッグを終了するか容量上限を増やしてください"),
     ("Language", "表示言語"),
     ("Help", "ヘルプ"),
     ("Home", "ホーム"),
@@ -228,6 +239,10 @@ const TEXT: &[(&str, &str)] = &[
 ];
 
 const TEMPLATES: &[(&str, &str)] = &[
+    ("Cache: {} MiB / {} MiB; {} files; {} active", "使用量: {} MiB / {} MiB、{} ファイル、使用中 {}"),
+    ("Failed to manage artifact cache: {}", "ELFキャッシュを管理できません: {}"),
+    ("Artifact cache worker failed: {}", "ELFキャッシュの処理が終了しました: {}"),
+    ("Failed to initialize artifact cache: {}", "ELFキャッシュを初期化できません: {}"),
     ("Last checked: {}", "最終診断: {}"),
     ("Host: {}", "ホスト: {}"),
     ("Checked: {}", "診断日時: {}"),

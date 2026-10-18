@@ -389,6 +389,16 @@ fn spawn_dap_server_thread(
     completion_tx: std::sync::mpsc::Sender<()>,
 ) -> std::thread::JoinHandle<()> {
     thread::spawn(move || {
+        if let Err(error) =
+            crate::settings::cache_limit_bytes().and_then(crate::artifact::configure_limit)
+        {
+            let _ = log_tx.send(format!(
+                "[ERROR] Failed to initialize artifact cache: {error:#}"
+            ));
+            shutdown_task.cancel();
+            let _ = completion_tx.send(());
+            return;
+        }
         let shutdown_probe = shutdown_task.clone();
         let upload_shutdown = shutdown_task.clone();
         let upload_log = log_tx.clone();
@@ -434,31 +444,20 @@ fn spawn_dap_server_thread(
         let _ = upload_handle.join();
         drop(runtime);
 
-        // Wait for both sockets to be completely released by the OS and tiny_http worker threads
-        let _ = wait_for_addr_available(address, std::time::Duration::from_secs(3));
-        let _ = wait_for_addr_available(upload_address, std::time::Duration::from_secs(3));
+        // tiny_http's accept thread exits asynchronously after the upload worker.
+        for (name, addr) in [("DAP", address), ("ELF upload", upload_address)] {
+            if let Err(error) =
+                check_addr_available_with_retry(addr, std::time::Duration::from_secs(3))
+            {
+                let _ = log_tx.send(format!(
+                    "[ERROR] {name} port {} is still unavailable after shutdown: {error}",
+                    addr.port()
+                ));
+            }
+        }
 
         let _ = completion_tx.send(());
     })
-}
-
-fn wait_for_addr_available(addr: SocketAddr, timeout: std::time::Duration) -> bool {
-    let deadline = std::time::Instant::now() + timeout;
-    loop {
-        match TcpListener::bind(addr) {
-            Ok(listener) => {
-                drop(listener);
-                std::thread::sleep(std::time::Duration::from_millis(30));
-                return true;
-            }
-            Err(_) => {
-                if std::time::Instant::now() >= deadline {
-                    return false;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(30));
-            }
-        }
-    }
 }
 
 fn check_addr_available_with_retry(
@@ -814,33 +813,51 @@ mod tests {
 
     #[test]
     fn stop_releases_ports_before_restart() {
-        let (log_tx, _log_rx) = std::sync::mpsc::channel();
+        let (log_tx, log_rx) = std::sync::mpsc::channel();
         let mut server = ProbeRsDapServer::default();
         let dap_port = unused_port();
         let upload_port = unused_port();
-        server.ip = "127.0.0.1".to_string();
+        server.ip = "0.0.0.0".to_string();
         server.port = dap_port.to_string();
         server.upload_port = upload_port.to_string();
 
-        server.start(log_tx.clone()).unwrap();
-        assert!(server.stop());
-        wait_until_stopped(&mut server);
-        server.start(log_tx).unwrap();
-        let _active_connection = (0..50)
-            .find_map(
-                |_| match std::net::TcpStream::connect(("127.0.0.1", dap_port)) {
-                    Ok(stream) => Some(stream),
-                    Err(_) => {
-                        std::thread::sleep(Duration::from_millis(10));
-                        None
-                    }
-                },
-            )
-            .expect("DAP server did not accept connections");
-        assert!(server.stop());
-        wait_until_stopped(&mut server);
+        for _ in 0..3 {
+            server.start(log_tx.clone()).unwrap();
+            loop {
+                let message = log_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+                assert!(!message.contains("[ERROR]"), "{message}");
+                if message.starts_with("ELF upload server listening on") {
+                    break;
+                }
+            }
+            let mut dap = connect_dap(dap_port);
+            assert_eq!(read_dap_message(&mut dap)["event"], "output");
+            drop(dap);
 
-        TcpListener::bind(("127.0.0.1", dap_port)).unwrap();
-        TcpListener::bind(("127.0.0.1", upload_port)).unwrap();
+            let mut upload = TcpStream::connect(("127.0.0.1", upload_port)).unwrap();
+            upload
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+            write!(
+                upload,
+                "GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+            )
+            .unwrap();
+            let mut response = String::new();
+            upload.read_to_string(&mut response).unwrap();
+            assert!(response.starts_with("HTTP/1.1 400"), "{response}");
+            drop(upload);
+            assert_eq!(
+                log_rx.recv_timeout(Duration::from_secs(3)).unwrap(),
+                "[ERROR] ELF upload rejected: Only PUT is supported"
+            );
+
+            assert!(server.stop());
+            assert_eq!(server.status, DapServerStatus::Stopping);
+            wait_until_stopped(&mut server);
+
+            TcpListener::bind(("0.0.0.0", dap_port)).unwrap();
+            TcpListener::bind(("0.0.0.0", upload_port)).unwrap();
+        }
     }
 }

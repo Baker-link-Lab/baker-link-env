@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Context, Result};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, TcpStream};
 use std::path::Path;
 use std::time::Duration;
 use tiny_http::{Method, Request, Response, Server, StatusCode};
@@ -18,12 +19,36 @@ pub fn run(
         .map_err(|error| anyhow!("Failed to bind ELF upload server on {address}: {error}"))?;
     let _ = log_tx.send(format!("ELF upload server listening on {address}"));
 
-    while !shutdown.is_cancelled() {
-        if let Some(request) = server.recv_timeout(Duration::from_millis(100))? {
-            handle_request(request, &root, &log_tx);
+    let result = (|| {
+        while !shutdown.is_cancelled() {
+            if let Some(request) = server.recv_timeout(Duration::from_millis(100))? {
+                handle_request(request, &root, &log_tx);
+            }
+        }
+        Ok(())
+    })();
+
+    let mut wake_address = server
+        .server_addr()
+        .to_ip()
+        .context("ELF upload server has no TCP address")?;
+    drop(server);
+
+    // tiny_http wakes accept() by connecting to its bind address, which fails
+    // for wildcard addresses on Windows. Wake it through loopback instead.
+    if wake_address.ip().is_unspecified() {
+        wake_address.set_ip(match wake_address.ip() {
+            IpAddr::V4(_) => IpAddr::V4(Ipv4Addr::LOCALHOST),
+            IpAddr::V6(_) => IpAddr::V6(Ipv6Addr::LOCALHOST),
+        });
+        match TcpStream::connect_timeout(&wake_address, Duration::from_secs(1)) {
+            Ok(stream) => drop(stream),
+            // The accept thread may already have exited after Server::drop.
+            Err(error) if error.kind() == std::io::ErrorKind::ConnectionRefused => {}
+            Err(error) => return Err(error).context("Failed to wake ELF upload listener"),
         }
     }
-    Ok(())
+    result
 }
 
 fn handle_request(mut request: Request, root: &Path, log_tx: &std::sync::mpsc::Sender<String>) {
@@ -109,13 +134,13 @@ mod tests {
             .local_addr()
             .unwrap()
             .port();
-        let address = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+        let address = std::net::SocketAddr::from(([0, 0, 0, 0], port));
         let handle = std::thread::spawn(move || {
             run(address, server_root, server_shutdown, log_tx).unwrap();
         });
 
         let mut stream = (0..50)
-            .find_map(|_| match TcpStream::connect(address) {
+            .find_map(|_| match TcpStream::connect(("127.0.0.1", port)) {
                 Ok(stream) => Some(stream),
                 Err(_) => {
                     std::thread::sleep(Duration::from_millis(10));

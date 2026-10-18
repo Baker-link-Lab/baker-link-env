@@ -14,13 +14,17 @@ pub struct ServerConfig {
     pub upload_port: String,
 }
 
+fn default_cache_limit() -> u64 {
+    crate::artifact::DEFAULT_LIMIT / (1024 * 1024)
+}
+
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct HistoryEntry {
     pub name: String,
     pub path: String,
 }
 
-#[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct AppSettings {
     #[serde(default)]
     pub language: crate::i18n::Language,
@@ -36,6 +40,23 @@ pub struct AppSettings {
     pub dap_port: String,
     #[serde(default = "default_upload_port")]
     pub upload_port: String,
+    #[serde(default = "default_cache_limit")]
+    pub artifact_cache_limit_mib: u64,
+}
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        Self {
+            language: Default::default(),
+            history: Vec::new(),
+            last_splash_date: String::new(),
+            bind_ip: default_bind_ip(),
+            connect_host: default_connect_host(),
+            dap_port: default_dap_port(),
+            upload_port: default_upload_port(),
+            artifact_cache_limit_mib: default_cache_limit(),
+        }
+    }
 }
 
 fn default_bind_ip() -> String {
@@ -137,6 +158,27 @@ pub fn save_language(language: crate::i18n::Language) -> Result<()> {
     save(&settings)
 }
 
+pub fn cache_limit_bytes() -> Result<u64> {
+    cache_limit_from_mib(load()?.artifact_cache_limit_mib)
+}
+
+pub fn cache_limit_from_mib(value: u64) -> Result<u64> {
+    anyhow::ensure!(
+        (128..=1_048_576).contains(&value),
+        "Cache capacity must be between 128 and 1048576 MiB"
+    );
+    value
+        .checked_mul(1024 * 1024)
+        .context("Cache capacity is too large")
+}
+
+pub fn save_cache_limit(mib: u64) -> Result<()> {
+    cache_limit_from_mib(mib)?;
+    let mut settings = load()?;
+    settings.artifact_cache_limit_mib = mib;
+    save(&settings)
+}
+
 pub fn load_history() -> Result<Vec<HistoryEntry>> {
     Ok(load()?.history)
 }
@@ -179,12 +221,35 @@ mod tests {
         assert_eq!(settings.connect_host, "host.docker.internal");
         assert_eq!(settings.dap_port, "50001");
         assert_eq!(settings.upload_port, "50002");
+        assert_eq!(settings.artifact_cache_limit_mib, 1024);
+        assert_eq!(AppSettings::default().artifact_cache_limit_mib, 1024);
     }
 
     #[test]
     fn preserves_explicit_loopback_binding() {
         let settings: AppSettings = serde_json::from_str(r#"{"bind_ip":"127.0.0.1"}"#).unwrap();
         assert_eq!(settings.bind_ip, "127.0.0.1");
+    }
+
+    #[test]
+    fn cache_capacity_round_trips_without_changing_other_settings() {
+        let settings: AppSettings =
+            serde_json::from_str(r#"{"artifact_cache_limit_mib":2048,"dap_port":"12345"}"#)
+                .unwrap();
+        let restored: AppSettings =
+            serde_json::from_str(&serde_json::to_string(&settings).unwrap()).unwrap();
+        assert_eq!(restored.artifact_cache_limit_mib, 2048);
+        assert_eq!(restored.dap_port, "12345");
+    }
+
+    #[test]
+    fn validates_cache_capacity_boundaries() {
+        assert_eq!(cache_limit_from_mib(1024).unwrap(), 1_073_741_824);
+        assert!(cache_limit_from_mib(128).is_ok());
+        assert!(cache_limit_from_mib(1_048_576).is_ok());
+        for value in [0, 127, 1_048_577, u64::MAX] {
+            assert!(cache_limit_from_mib(value).is_err());
+        }
     }
 
     #[test]

@@ -2,7 +2,13 @@ use dioxus::prelude::*;
 use futures_util::StreamExt;
 use std::time::Duration;
 
-use crate::{cmd, doctor, helpers, i18n::Language, logger, parameter, settings};
+use crate::{artifact, cmd, doctor, helpers, i18n::Language, logger, parameter, settings};
+
+enum CacheAction {
+    Refresh,
+    Save(String),
+    ClearUnused,
+}
 
 /// Actions dispatched from UI buttons into a single coroutine.
 enum AppAction {
@@ -22,6 +28,7 @@ enum AppAction {
         startup: bool,
     },
     OpenHelp(Option<&'static str>),
+    Cache(CacheAction),
 }
 
 fn localized_log_line(line: &str, language: Language) -> String {
@@ -69,6 +76,9 @@ pub fn App() -> Element {
     let mut show_reset_confirm = use_signal(|| false);
     let mut show_version_opts = use_signal(|| false);
     let mut show_dap_advanced = use_signal(|| false);
+    let mut cache_usage = use_signal(|| Option::<artifact::Usage>::None);
+    let mut cache_limit_mib = use_signal(|| "1024".to_string());
+    let mut cache_busy = use_signal(|| false);
     let mut probe_name = use_signal(String::new);
     let mut chip_name = use_signal(String::new);
     let mut chip_cores = use_signal(String::new);
@@ -91,6 +101,60 @@ pub fn App() -> Element {
     let actions = use_coroutine(move |mut rx: UnboundedReceiver<AppAction>| async move {
         while let Some(action) = rx.next().await {
             match action {
+                AppAction::Cache(action) => {
+                    cache_busy.set(true);
+                    let (tx, done) = tokio::sync::oneshot::channel();
+                    std::thread::spawn(move || {
+                        let result = (|| -> anyhow::Result<artifact::Usage> {
+                            match action {
+                                CacheAction::Refresh => {
+                                    let limit = settings::cache_limit_bytes()?;
+                                    artifact::configure_limit(limit)
+                                }
+                                CacheAction::ClearUnused => artifact::clear_unused(),
+                                CacheAction::Save(value) => {
+                                    let mib = value.trim().parse::<u64>().map_err(|_| {
+                                        anyhow::anyhow!(
+                                            "Cache capacity must be a whole number of MiB"
+                                        )
+                                    })?;
+                                    let bytes = settings::cache_limit_from_mib(mib)?;
+                                    let previous = settings::cache_limit_bytes()?;
+                                    let usage = artifact::configure_limit(bytes)?;
+                                    if let Err(error) = settings::save_cache_limit(mib) {
+                                        if let Err(restore_error) =
+                                            artifact::configure_limit(previous)
+                                        {
+                                            anyhow::bail!("Failed to save cache capacity: {error:#}; failed to restore previous capacity: {restore_error:#}");
+                                        }
+                                        return Err(error);
+                                    }
+                                    Ok(usage)
+                                }
+                            }
+                        })();
+                        let _ = tx.send(result);
+                    });
+                    match done.await {
+                        Ok(Ok(usage)) => {
+                            cache_limit_mib.set((usage.limit / (1024 * 1024)).to_string());
+                            cache_usage.set(Some(usage));
+                            crate::log_info("Artifact cache updated");
+                        }
+                        result => {
+                            let message = match result {
+                                Ok(Err(error)) => {
+                                    format!("Failed to manage artifact cache: {error:#}")
+                                }
+                                Err(error) => format!("Artifact cache worker failed: {error}"),
+                                _ => unreachable!(),
+                            };
+                            crate::log_error(message.clone());
+                            last_error.set(Some(message));
+                        }
+                    }
+                    cache_busy.set(false);
+                }
                 AppAction::OpenHelp(section) => {
                     let url = language.read().help_url(section);
                     if let Err(error) = open::that(&url) {
@@ -377,6 +441,7 @@ pub fn App() -> Element {
     });
 
     use_future(move || async move {
+        actions.send(AppAction::Cache(CacheAction::Refresh));
         actions.send(AppAction::DiagnoseEnvironment { startup: true });
     });
 
@@ -888,6 +953,9 @@ pub fn App() -> Element {
                                     onclick: move |_| {
                                         let current = *show_dap_advanced.peek();
                                         show_dap_advanced.set(!current);
+                                        if !current {
+                                            actions.send(AppAction::Cache(CacheAction::Refresh));
+                                        }
                                     },
                                     if *show_dap_advanced.read() {
                                         {language.read().text("Hide Advanced Settings").into_owned()}
@@ -936,6 +1004,51 @@ pub fn App() -> Element {
                                     }
                                     p { class: "m-0 text-[11px] text-bkl-text-faint",
                                         {language.read().text("Dev Container connects through host.docker.internal. Changes apply on Run.").into_owned()}
+                                    }
+                                    h3 { class: "m-0 text-xs font-semibold text-bkl-text-muted",
+                                        {language.read().text("ELF Cache").into_owned()}
+                                    }
+                                    p { class: "m-0 text-[11px] text-bkl-text-faint",
+                                        {language.read().text("Oldest unused artifacts are removed when capacity is exceeded. No expiry. Active debug artifacts are protected from deletion.").into_owned()}
+                                    }
+                                    if let Some(usage) = cache_usage.read().as_ref() {
+                                        p { class: "m-0 text-xs text-bkl-text-muted",
+                                            {language.read().text(&format!("Cache: {} MiB / {} MiB; {} files; {} active",
+                                                usage.bytes.div_ceil(1024 * 1024),
+                                                usage.limit / (1024 * 1024), usage.files, usage.active_files)).into_owned()}
+                                        }
+                                    }
+                                    div { class: "flex items-center gap-2 flex-wrap",
+                                        label { class: "text-[11px] font-semibold text-bkl-text-muted",
+                                            {language.read().text("Capacity (MiB)").into_owned()}
+                                        }
+                                        input {
+                                            class: "input min-w-0 text-xs",
+                                            r#type: "number",
+                                            min: "128",
+                                            max: "1048576",
+                                            value: "{cache_limit_mib}",
+                                            disabled: *cache_busy.read(),
+                                            oninput: move |event| cache_limit_mib.set(event.value()),
+                                        }
+                                        button {
+                                            class: "btn-chip",
+                                            disabled: *cache_busy.read(),
+                                            onclick: move |_| actions.send(AppAction::Cache(CacheAction::Save(cache_limit_mib.read().clone()))),
+                                            {language.read().text("Save capacity").into_owned()}
+                                        }
+                                        button {
+                                            class: "btn-chip",
+                                            disabled: *cache_busy.read(),
+                                            onclick: move |_| actions.send(AppAction::Cache(CacheAction::Refresh)),
+                                            {language.read().text("Refresh usage").into_owned()}
+                                        }
+                                        button {
+                                            class: "btn-danger",
+                                            disabled: *cache_busy.read(),
+                                            onclick: move |_| actions.send(AppAction::Cache(CacheAction::ClearUnused)),
+                                            {language.read().text("Delete unused cache").into_owned()}
+                                        }
                                     }
                                 }
                             }
@@ -1111,6 +1224,7 @@ pub fn App() -> Element {
                                             history.set(vec![]);
                                             show_reset_confirm.set(false);
                                             show_splash.set(true);
+                                            actions.send(AppAction::Cache(CacheAction::Refresh));
                                         }
                                         Err(error) => {
                                             crate::log_error(format!("Failed to reset settings: {error}"));

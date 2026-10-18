@@ -119,9 +119,36 @@ For manual opening, see the [template guide](template/bakerlink_tutorial_templat
 
 ## Debugging and Connection Problems
 
+### ELF cache management
+
+Open **Advanced Settings → ELF Cache** in the debug server panel to view cache
+usage, file count and active file count, change **Capacity (MiB)**, or
+**Delete unused cache**. Use **Refresh usage** after uploading or ending a session.
+The default capacity is **1024 MiB (1 GiB)**; there is **no age-based expiry**.
+The capacity is saved in settings and applies immediately.
+
+Verified ELF files live in the OS cache directory under
+`baker-link-env/artifacts/<project>/<profile>.elf`. Uploads and debug launches
+update their last-use order. On startup, capacity changes and uploads, the
+least-recently-used inactive files are evicted as needed. Interrupted upload
+files and empty project cache directories are also cleaned up.
+
+Active debug artifacts are excluded from automatic eviction and manual deletion
+until the session ends, including on errors or disconnects. If protected files
+leave insufficient capacity, an upload or capacity reduction fails explicitly
+instead of deleting them. Re-uploading the same project/profile still replaces
+its ELF so debugger restart uploads continue to work.
+
+The limit covers committed ELF files. A single upload may additionally use up
+to **128 MiB** of temporary staging space while its checksum is verified.
+Cleanup is limited to managed cache files; source projects are not deleted.
+
 - Default **Bind IP**: `0.0.0.0`; **DAP**: `50001`; **Upload**: `50002`.
 - Click **Run** on the host before debugging. The extension does not start
   host services automatically.
+- After **Stop**, wait for shutdown to finish before clicking **Run** again.
+  If an older version leaves the upload port in use on Windows, fully exit
+  and restart Baker Link Env to release its leftover listener.
 - If ports differ, update `bakerLink.dapServer` and `bakerLink.uploadUrl` in
   `.vscode/launch.json`. Keep `remoteServerMode: false` and
   `programBinary: "bakerlink://<project>/<profile>"`.
