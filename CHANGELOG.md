@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+### Bug fixes
+- Fixed intermittent ELF upload shutdown errors during debug server restarts by verifying port release when the listener wake-up connection fails.
+
 ## v0.2.2
 
 ### Bug fixes

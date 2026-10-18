@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Context, Result};
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, TcpStream};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, TcpListener, TcpStream};
 use std::path::Path;
 use std::time::Duration;
 use tiny_http::{Method, Request, Response, Server, StatusCode};
@@ -28,7 +28,7 @@ pub fn run(
         Ok(())
     })();
 
-    let mut wake_address = server
+    let listener_address = server
         .server_addr()
         .to_ip()
         .context("ELF upload server has no TCP address")?;
@@ -36,16 +36,38 @@ pub fn run(
 
     // tiny_http wakes accept() by connecting to its bind address, which fails
     // for wildcard addresses on Windows. Wake it through loopback instead.
-    if wake_address.ip().is_unspecified() {
+    if listener_address.ip().is_unspecified() {
+        let mut wake_address = listener_address;
         wake_address.set_ip(match wake_address.ip() {
             IpAddr::V4(_) => IpAddr::V4(Ipv4Addr::LOCALHOST),
             IpAddr::V6(_) => IpAddr::V6(Ipv6Addr::LOCALHOST),
         });
         match TcpStream::connect_timeout(&wake_address, Duration::from_secs(1)) {
             Ok(stream) => drop(stream),
-            // The accept thread may already have exited after Server::drop.
-            Err(error) if error.kind() == std::io::ErrorKind::ConnectionRefused => {}
-            Err(error) => return Err(error).context("Failed to wake ELF upload listener"),
+            Err(error) => {
+                // Server::drop may have already woken the accept thread. OSes
+                // report different connect errors while the listener closes.
+                let deadline = std::time::Instant::now() + Duration::from_secs(1);
+                loop {
+                    match TcpListener::bind(listener_address) {
+                        Ok(listener) => {
+                            drop(listener);
+                            break;
+                        }
+                        Err(bind_error) => {
+                            if std::time::Instant::now() >= deadline {
+                                return Err(error).with_context(|| {
+                                    format!(
+                                        "Failed to wake ELF upload listener; \
+                                         {listener_address} is still unavailable: {bind_error}"
+                                    )
+                                });
+                            }
+                            std::thread::sleep(Duration::from_millis(10));
+                        }
+                    }
+                }
+            }
         }
     }
     result
@@ -114,6 +136,39 @@ mod tests {
     use std::io::{Read, Write};
     use std::net::TcpStream;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn immediate_shutdown_releases_listener_before_restart() {
+        for ip in [Ipv4Addr::UNSPECIFIED, Ipv4Addr::LOCALHOST] {
+            let listener = TcpListener::bind((ip, 0)).unwrap();
+            let address = listener.local_addr().unwrap();
+            drop(listener);
+            let (log_tx, _log_rx) = std::sync::mpsc::channel();
+
+            for _ in 0..20 {
+                let shutdown = CancellationToken::new();
+                shutdown.cancel();
+                run(address, std::env::temp_dir(), shutdown, log_tx.clone()).unwrap();
+
+                let deadline = std::time::Instant::now() + Duration::from_secs(3);
+                loop {
+                    match TcpListener::bind(address) {
+                        Ok(listener) => {
+                            drop(listener);
+                            break;
+                        }
+                        Err(error) => {
+                            assert!(
+                                std::time::Instant::now() < deadline,
+                                "upload port was not released: {error}"
+                            );
+                            std::thread::sleep(Duration::from_millis(10));
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn uploads_artifact_without_authentication() {

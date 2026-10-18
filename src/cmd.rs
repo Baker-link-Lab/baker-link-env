@@ -856,6 +856,9 @@ mod tests {
             assert_eq!(server.status, DapServerStatus::Stopping);
             wait_until_stopped(&mut server);
 
+            for message in log_rx.try_iter() {
+                assert!(!message.contains("[ERROR]"), "{message}");
+            }
             TcpListener::bind(("0.0.0.0", dap_port)).unwrap();
             TcpListener::bind(("0.0.0.0", upload_port)).unwrap();
         }
