@@ -128,6 +128,10 @@ For manual opening, see the [template guide](template/bakerlink_tutorial_templat
 - For release/examples, match the build task, `bakerLink.elf`, and artifact profile.
 - Use **Baker Link: Check Host Connection** for TCP checks and the **Baker Link Env**
   output channel for errors. Port checks do not verify USB/MCU readiness.
+- The template uses `haltAfterReset: false` to run after flashing and debugger
+  configuration. RTT appears in a terminal once firmware initializes it.
+  With `haltAfterReset: true`, press Continue (**F5**) after the initial stop.
+  A successful ELF upload only confirms host cache storage, not target flashing.
 
 **Security:** DAP and ELF upload are unauthenticated. `0.0.0.0` listens on all
 host interfaces; restrict access to trusted networks with firewall rules.

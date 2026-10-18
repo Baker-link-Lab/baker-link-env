@@ -623,6 +623,8 @@ fn start_rd_linux() -> std::result::Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{BufRead, BufReader, Read, Write};
+    use std::net::TcpStream;
     use std::time::{Duration, Instant};
 
     #[test]
@@ -715,6 +717,99 @@ mod tests {
             assert!(Instant::now() < deadline, "DAP server did not stop in time");
             std::thread::sleep(Duration::from_millis(20));
         }
+    }
+
+    fn connect_dap(port: u16) -> BufReader<TcpStream> {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            match TcpStream::connect(("127.0.0.1", port)) {
+                Ok(stream) => {
+                    stream
+                        .set_read_timeout(Some(Duration::from_secs(3)))
+                        .unwrap();
+                    stream
+                        .set_write_timeout(Some(Duration::from_secs(3)))
+                        .unwrap();
+                    return BufReader::new(stream);
+                }
+                Err(error) => {
+                    assert!(Instant::now() < deadline, "DAP did not accept: {error}");
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+            }
+        }
+    }
+
+    fn read_dap_message(reader: &mut BufReader<TcpStream>) -> serde_json::Value {
+        let mut length = None;
+        loop {
+            let mut line = String::new();
+            assert_ne!(
+                reader.read_line(&mut line).unwrap(),
+                0,
+                "DAP closed unexpectedly"
+            );
+            if line == "\r\n" {
+                break;
+            }
+            if let Some(value) = line.strip_prefix("Content-Length:") {
+                length = Some(value.trim().parse::<usize>().unwrap());
+            }
+        }
+        let mut body = vec![0; length.expect("DAP message must have Content-Length")];
+        reader.read_exact(&mut body).unwrap();
+        serde_json::from_slice(&body).unwrap()
+    }
+
+    #[test]
+    fn dap_accepts_initialize_after_repeated_connection_checks_and_disconnects() {
+        let (log_tx, _log_rx) = std::sync::mpsc::channel();
+        let mut server = ProbeRsDapServer::default();
+        let dap_port = unused_port();
+        server.ip = "127.0.0.1".to_string();
+        server.port = dap_port.to_string();
+        server.upload_port = unused_port().to_string();
+        server.start(log_tx).unwrap();
+
+        for _ in 0..3 {
+            let mut check = connect_dap(dap_port);
+            // Receiving the greeting proves this connection reached the session loop.
+            assert_eq!(read_dap_message(&mut check)["event"], "output");
+            drop(check);
+
+            let mut client = connect_dap(dap_port);
+            let request = serde_json::json!({
+                "seq": 1,
+                "type": "request",
+                "command": "initialize",
+                "arguments": {
+                    "adapterID": "baker-link-debug",
+                    "clientID": "vscode",
+                    "linesStartAt1": true,
+                    "columnsStartAt1": true
+                }
+            })
+            .to_string();
+            write!(
+                client.get_mut(),
+                "Content-Length: {}\r\n\r\n{request}",
+                request.len()
+            )
+            .unwrap();
+            let deadline = Instant::now() + Duration::from_secs(3);
+            loop {
+                assert!(Instant::now() < deadline, "DAP initialize timed out");
+                let message = read_dap_message(&mut client);
+                if message["type"] == "response" && message["request_seq"] == 1 {
+                    assert_eq!(message["command"], "initialize");
+                    assert_eq!(message["success"], true);
+                    break;
+                }
+            }
+            drop(client);
+        }
+        assert!(server.stop());
+        wait_until_stopped(&mut server);
     }
 
     #[test]

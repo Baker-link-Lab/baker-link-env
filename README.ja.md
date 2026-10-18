@@ -113,6 +113,10 @@ Desktop環境の基本Composeに無条件の `host-gateway` を追加しない�
 - ポートを変えたら `.vscode/launch.json` の `bakerLink.dapServer` と `bakerLink.uploadUrl` も変更します。
 - 接続確認はVS Codeの **Baker Link: Check Host Connection**、エラー詳細は **Baker Link Env** 出力チャンネルで確認します。
 - リリース・サンプルのデバッグでは、ビルドタスク・`bakerLink.elf`・成果物のプロファイルを合わせます。
+- テンプレートは `haltAfterReset: false` で、書き込み・デバッガ設定後に自動実行します。
+  RTTはファームウェアの初期化後に専用ターミナルへ表示されます。
+  `haltAfterReset: true` の場合は初期停止後に **続行（F5）** が必要です。
+- ELFアップロード成功はPC側キャッシュへの保存完了を示し、MCUへの書き込み成功とは異なります。
 
 **安全上の注意:** DAPとELFアップロードは認証がありません。`0.0.0.0` は全インターフェースで待受するため、
 信頼できるネットワークだけにファイアウォールでアクセスを制限してください。
