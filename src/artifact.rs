@@ -131,17 +131,33 @@ fn validate_sha256(value: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    static NEXT_TEST_ROOT: AtomicUsize = AtomicUsize::new(0);
 
     fn test_root() -> PathBuf {
         std::env::temp_dir().join(format!(
-            "baker-link-artifact-test-{}-{}",
+            "baker-link-artifact-test-{}-{}-{}",
             std::process::id(),
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
-                .as_nanos()
+                .as_nanos(),
+            NEXT_TEST_ROOT.fetch_add(1, Ordering::Relaxed)
         ))
+    }
+
+    #[test]
+    fn test_roots_are_unique_across_threads() {
+        let handles: Vec<_> = (0..8)
+            .map(|_| std::thread::spawn(|| (0..128).map(|_| test_root()).collect::<Vec<_>>()))
+            .collect();
+        let roots: std::collections::HashSet<_> = handles
+            .into_iter()
+            .flat_map(|handle| handle.join().unwrap())
+            .collect();
+        assert_eq!(roots.len(), 8 * 128);
     }
 
     #[test]

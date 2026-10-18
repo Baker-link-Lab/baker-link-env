@@ -7,6 +7,11 @@ consistent `vX.Y.Z` format even where historical tag names differ. No v0.1.1
 tag or package-version change was found; v0.2.1 is recorded as an untagged
 development version.
 
+## Unreleased
+
+### Bug fixes
+- Fixed parallel artifact tests sharing temporary cache directories when the system clock returns identical timestamps, causing spurious upload-in-progress failures on macOS.
+
 ## v0.2.8
 
 ### User-facing changes
